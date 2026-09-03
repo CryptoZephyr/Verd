@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: verd-phase5-worker
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: PRIVATE_KEY
+        sync: false
+      - key: SEPOLIA_RPC_URL
+        sync: false
+      - key: CC3_RPC_URL
+        sync: false
+      - key: PROOF_BUILDER_URL
+        sync: false
+      - key: VERD_ADDRESS
+        sync: false
+      - key: INTERNAL_TICK_SECRET
+        sync: false
+      - key: SOURCE_CHAIN_KEY
+        value: "1"
+      - key: CC3_GAS_LIMIT
+        value: "9000000"
+      - key: WORKER_LEASE_SECONDS
+        value: "120"
+      - key: ATTESTATION_REQUEST_TIMEOUT_MS
+        value: "2500"
+      - key: ATTESTATION_MAX_WAIT_MS
+        value: "5000"
+      - key: ATTESTATION_POLL_INTERVAL_MS
+        value: "1000"

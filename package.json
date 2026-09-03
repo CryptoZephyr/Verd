@@ -1,0 +1,36 @@
+{
+  "name": "verd-phase5-worker",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:contracts": "forge build",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:phase5": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/phase5-worker.test.js",
+    "phase0:deploy-cc3": "node scripts/phase0-deploy-cc3.mjs",
+    "phase0:source": "node scripts/phase0-source.mjs",
+    "phase0:verify": "node scripts/phase0-verify.mjs",
+    "phase0:worker": "node scripts/phase0-worker.mjs",
+    "phase0:negative": "node scripts/phase0-adversarial.mjs --mode wrong-borrower",
+    "phase0:replay": "node scripts/phase0-adversarial.mjs --mode replay",
+    "phase3:live": "node scripts/phase3-live.mjs",
+    "phase4:recovery": "node --test test/phase4-recovery.test.mjs"
+  },
+  "dependencies": {
+    "@aave/core-v3": "^1.19.3",
+    "@gluwa/usc-contracts": "0.2.0",
+    "@gluwa/usc-sdk": "0.18.0",
+    "dotenv": "16.6.1",
+    "ethers": "6.15.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,323 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import type { Config } from "../src/config.js";
+import { createHttpServer } from "../src/server.js";
+import { RetryableWorkerError } from "../src/errors.js";
+import { deriveJobId, nowIso } from "../src/utils.js";
+import { ProofWorker } from "../src/worker.js";
+import type {
+    ChainGateway,
+    ClaimedJob,
+    FacilitySnapshot,
+    GeneratedProof,
+    JobInput,
+    JobRecord,
+    JobState,
+    JobStore,
+    QualificationSnapshot,
+    SerializedProof,
+    SourceVerification,
+    SubmissionReceipt,
+} from "../src/types.js";
+
+const FACILITY_ID = `0x${"11".repeat(32)}`;
+const SOURCE_TX_HASH = `0x${"22".repeat(32)}`;
+const PROOF_ID = `0x${"33".repeat(32)}`;
+const BORROWER = `0x${"44".repeat(20)}`;
+const LOCKER = `0x${"55".repeat(20)}`;
+const POOL = `0x${"66".repeat(20)}`;
+const WETH = `0x${"77".repeat(20)}`;
+const ATOKEN = `0x${"88".repeat(20)}`;
+
+function config(): Config {
+    return {
+        port: 0,
+        databaseUrl: "postgres://unit-test",
+        databaseSsl: false,
+        privateKey: `0x${"99".repeat(32)}`,
+        sepoliaRpcUrl: "http://sepolia.test",
+        cc3RpcUrl: "http://cc3.test",
+        proofBuilderUrl: "http://proof.test",
+        verdAddress: `0x${"aa".repeat(20)}`,
+        internalTickSecret: "phase5-unit-secret-1234",
+        sourceChainKey: 1,
+        cc3GasLimit: 9_000_000n,
+        leaseSeconds: 120,
+        attestationRequestTimeoutMs: 1,
+        attestationMaxWaitMs: 1,
+        attestationPollIntervalMs: 1,
+        maxBodyBytes: 64 * 1024,
+    };
+}
+
+class MemoryJobStore implements JobStore {
+    readonly jobs = new Map<string, JobRecord>();
+    private readonly leases = new Map<string, string>();
+
+    async migrate(): Promise<void> {}
+    async ping(): Promise<void> {}
+
+    async createJob(input: JobInput): Promise<{ job: JobRecord; created: boolean }> {
+        const jobId = deriveJobId(input.facilityId, input.sourceTxHash);
+        const existing = this.jobs.get(jobId);
+        if (existing) return { job: structuredClone(existing), created: false };
+        const createdAt = nowIso();
+        const state: JobState = {
+            version: 1,
+            jobId,
+            facilityId: input.facilityId,
+            sourceTxHash: input.sourceTxHash,
+            status: "source_pending",
+            nextAction: "wait_source_transaction",
+            terminal: false,
+            attempts: 0,
+            retryCount: 0,
+            createdAt,
+            updatedAt: createdAt,
+            proofId: input.proofId,
+            sourceBlock: input.sourceBlock,
+            cc3SubmissionTxHash: input.cc3SubmissionTxHash,
+        };
+        const job = { jobId, facilityId: input.facilityId, sourceTxHash: input.sourceTxHash, state };
+        this.jobs.set(jobId, structuredClone(job));
+        return { job, created: true };
+    }
+
+    async getJob(jobId: string): Promise<JobRecord | null> {
+        const job = this.jobs.get(jobId);
+        return job ? structuredClone(job) : null;
+    }
+
+    async claimJob(jobId?: string): Promise<ClaimedJob | null> {
+        const candidates = jobId ? [this.jobs.get(jobId)] : [...this.jobs.values()];
+        const job = candidates.find((candidate) => candidate && !candidate.state.terminal && !this.leases.has(candidate.jobId));
+        if (!job) return null;
+        const leaseToken = `lease-${job.jobId}`;
+        this.leases.set(job.jobId, leaseToken);
+        return { job: structuredClone(job), leaseToken };
+    }
+
+    async saveJob(job: JobRecord, leaseToken: string, releaseLease: boolean): Promise<void> {
+        assert.equal(this.leases.get(job.jobId), leaseToken);
+        job.state.updatedAt = nowIso();
+        this.jobs.set(job.jobId, structuredClone(job));
+        if (releaseLease) this.leases.delete(job.jobId);
+    }
+
+    async close(): Promise<void> {}
+}
+
+class FakeChain implements ChainGateway {
+    readonly facility: FacilitySnapshot = {
+        facilityId: FACILITY_ID,
+        borrower: BORROWER,
+        requiredReserveAmount: 500n,
+        maturity: 200,
+        qualificationDeadline: 150,
+        reserveLocker: LOCKER,
+        preferredRateActive: false,
+        funded: true,
+        qualificationProofId: `0x${"00".repeat(32)}`,
+        qualificationSourceBlock: 0,
+        lockerBindingProofId: `0x${"10".repeat(32)}`,
+        lockerBindingSourceBlock: 90,
+        lockerUnlockTime: 200,
+    };
+    readonly proof: SerializedProof = {
+        chainKey: 1,
+        headerNumber: 100,
+        txHash: SOURCE_TX_HASH,
+        txBytes: "0x1234",
+        merkleProof: { root: `0x${"01".repeat(32)}`, siblings: [] },
+        continuityProof: { lowerEndpointDigest: `0x${"02".repeat(32)}`, roots: [] },
+        generatedAt: nowIso(),
+    };
+    processed = false;
+    preferred = false;
+    receiptReady = false;
+    throwFirstSend = false;
+    sendNonces: number[] = [];
+
+    async assertNetworks(): Promise<void> {}
+
+    async getFacility(): Promise<FacilitySnapshot> {
+        return { ...this.facility, preferredRateActive: this.preferred };
+    }
+
+    async verifySource(_facility: FacilitySnapshot, _sourceTxHash: string, expectedSourceBlock?: number): Promise<SourceVerification> {
+        if (expectedSourceBlock !== undefined) assert.equal(expectedSourceBlock, 100);
+        return {
+            sourceBlock: 100,
+            receiptStatus: 1,
+            event: {
+                reserve: WETH,
+                user: BORROWER,
+                onBehalfOf: LOCKER,
+                amount: "500",
+                referralCode: 0,
+            },
+            lockerATokenBalance: "500",
+        };
+    }
+
+    async waitForAttestation(): Promise<void> {}
+
+    async generateProof(): Promise<GeneratedProof> {
+        return { proof: this.proof, proofId: PROOF_ID, sdkProofValid: true };
+    }
+
+    async readQualification(_facilityId: string, proofId: string): Promise<QualificationSnapshot> {
+        return {
+            processedProof: this.processed,
+            preferredRateActive: this.preferred,
+            qualificationProofId: this.processed ? proofId : `0x${"00".repeat(32)}`,
+            qualificationSourceBlock: this.processed ? 100 : 0,
+        };
+    }
+
+    async reserveSubmissionNonce(): Promise<number> {
+        return 7;
+    }
+
+    async getSubmissionNonceState(): Promise<{ latest: number; pending: number }> {
+        return { latest: 7, pending: 7 };
+    }
+
+    async findSubmissionByNonce(): Promise<string | null> {
+        return null;
+    }
+
+    async sendQualification(_facilityId: string, _proof: SerializedProof, nonce: number): Promise<string> {
+        this.sendNonces.push(nonce);
+        if (this.throwFirstSend) {
+            this.throwFirstSend = false;
+            throw new RetryableWorkerError("cc3_submission_unavailable", "temporary test transport failure");
+        }
+        return `0x${"ab".repeat(32)}`;
+    }
+
+    async getReceipt(): Promise<SubmissionReceipt | null> {
+        if (!this.receiptReady) return null;
+        this.processed = true;
+        this.preferred = true;
+        return { status: 1, blockNumber: 500, gasUsed: "12345" };
+    }
+}
+
+async function createJob(store: MemoryJobStore, input: Partial<JobInput> = {}): Promise<JobRecord> {
+    const result = await store.createJob({
+        facilityId: FACILITY_ID,
+        sourceTxHash: SOURCE_TX_HASH,
+        ...input,
+    });
+    return result.job;
+}
+
+async function advanceToProofReady(store: MemoryJobStore, chain: FakeChain, jobId: string): Promise<void> {
+    await new ProofWorker(store, chain, config()).tick(jobId);
+    await new ProofWorker(store, chain, config()).tick(jobId);
+    await new ProofWorker(store, chain, config()).tick(jobId);
+    assert.equal((await store.getJob(jobId))?.state.nextAction, "submit_cc3");
+}
+
+test("a durable job resumes after a worker restart and confirms the same CC3 submission", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    const job = await createJob(store);
+
+    await advanceToProofReady(store, chain, job.jobId);
+    await new ProofWorker(store, chain, config()).tick(job.jobId);
+    let saved = await store.getJob(job.jobId);
+    assert.equal(saved?.state.nextAction, "check_cc3_submission");
+    assert.equal(saved?.state.cc3SubmissionNonce, 7);
+    assert.equal(chain.sendNonces.length, 1);
+
+    const pending = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(pending.outcome, "retrying");
+    assert.equal(chain.sendNonces.length, 1);
+
+    chain.receiptReady = true;
+    const completed = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(completed.outcome, "completed");
+    saved = await store.getJob(job.jobId);
+    assert.equal(saved?.state.status, "completed");
+    assert.equal(saved?.state.idempotencyOutcome, "submission_receipt_confirmed");
+    assert.equal(chain.sendNonces.length, 1);
+});
+
+test("a proof already accepted by the verified Phase 3 contracts is idempotent", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    chain.processed = true;
+    chain.preferred = true;
+    const job = await createJob(store, { proofId: PROOF_ID, sourceBlock: 100 });
+
+    const first = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(first.outcome, "completed");
+    assert.equal(first.job?.state.idempotencyOutcome, "proof_already_processed_on_chain");
+    assert.equal(chain.sendNonces.length, 0);
+
+    const second = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(second.outcome, "idle");
+    assert.equal(chain.sendNonces.length, 0);
+});
+
+test("a restart after durable submission intent reuses the reserved nonce", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    chain.throwFirstSend = true;
+    const job = await createJob(store);
+    await advanceToProofReady(store, chain, job.jobId);
+
+    const first = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(first.outcome, "retrying");
+    let saved = await store.getJob(job.jobId);
+    assert.equal(saved?.state.cc3SubmissionNonce, 7);
+    assert.equal(saved?.state.cc3SubmissionTxHash, undefined);
+
+    const resumed = await new ProofWorker(store, chain, config()).tick(job.jobId);
+    assert.equal(resumed.outcome, "advanced");
+    saved = await store.getJob(job.jobId);
+    assert.equal(saved?.state.cc3SubmissionTxHash, `0x${"ab".repeat(32)}`);
+    assert.deepEqual(chain.sendNonces, [7, 7]);
+});
+
+test("health, registration, and status routes enforce the internal secret", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    const worker = new ProofWorker(store, chain, config());
+    const server = createHttpServer(store, worker, config());
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+        const health = await fetch(`${base}/health`);
+        assert.equal(health.status, 200);
+        assert.equal((await health.json()).phase, "phase5");
+
+        const unauthorized = await fetch(`${base}/qualification-jobs`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ facilityId: FACILITY_ID, sourceTxHash: SOURCE_TX_HASH }),
+        });
+        assert.equal(unauthorized.status, 401);
+
+        const registered = await fetch(`${base}/qualification-jobs`, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                "x-internal-tick-secret": config().internalTickSecret,
+            },
+            body: JSON.stringify({ facilityId: FACILITY_ID, sourceTxHash: SOURCE_TX_HASH }),
+        });
+        assert.equal(registered.status, 201);
+        const registeredBody = await registered.json();
+        const status = await fetch(`${base}/job-status/${registeredBody.job.jobId}`);
+        assert.equal(status.status, 200);
+        assert.equal((await status.json()).nextAction, "wait_source_transaction");
+    } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+});
