@@ -1,6 +1,6 @@
 # Phase 4, adversarial and recovery verification
 
-Status: complete locally after corrected Phase 3 passed. Current engineering gate: Phase 5, proof worker and Render Free backend. No Phase 5 deployment work has started.
+Status: complete locally after corrected Phase 3 passed. Phase 5 proof worker and Render Free backend verification is complete. Phase 6 frontend work has not started.
 
 ## Adversarial coverage
 
@@ -50,4 +50,4 @@ forge build
 passed with existing block-timestamp and checked-cast lint warnings
 ```
 
-No Render or frontend work was performed. Phase 4 is complete. Phase 5 is the single current engineering gate, and no Phase 5 deployment work has started.
+Phase 4 itself did not perform Render or frontend work. Phase 4 is complete. Phase 5 is verified, and Phase 6 frontend work has not started.

@@ -1,6 +1,6 @@
 # Verd facility core
 
-Status: Phase 2, the corrected Phase 3 path, and Phase 4 adversarial and recovery verification are complete. The single current engineering gate is Phase 5, proof worker and Render Free backend. No Phase 5 deployment work has started.
+Status: Phase 2, the corrected Phase 3 path, Phase 4 adversarial and recovery verification, and Phase 5 proof worker and Render Free backend verification are complete. Phase 6 frontend work has not started.
 
 ## Facility contract
 
