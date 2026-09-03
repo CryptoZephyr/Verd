@@ -38,4 +38,4 @@ The deployed idempotency check used the already-qualified Phase 3 facility, so i
 - `test/`, Solidity, recovery, and worker tests.
 - `docs/`, phase evidence and implementation status.
 
-License state: no license file is declared. Do not reuse or redistribute this repository without permission.
+The repository is released under the [MIT License](../LICENSE).

@@ -1,55 +1,100 @@
 # Verd
 
-Verd is a fixed-term working-capital facility on Creditcoin. A borrower can earn a preferred rate by completing an authenticated Aave reserve action on Ethereum Sepolia with a facility-specific ReserveLocker.
+[![CI](https://github.com/CryptoZephyr/Verd/actions/workflows/ci.yml/badge.svg)](https://github.com/CryptoZephyr/Verd/actions/workflows/ci.yml)
 
-The current checkout contains the verified factory-bound Phase 3 contract flow, Phase 4 adversarial and recovery coverage, and a Phase 5 resumable proof worker. The backend is live on Render for testnet evidence. Phase 6 frontend work and full repayment lifecycle evidence have not started.
+Verd is a testnet working-capital protocol for Creditcoin. A lender can offer better borrowing terms when a borrower completes a real, locked reserve commitment on Ethereum and proves it through Attestcoin.
 
-## Verified deployment
+## The product
 
-The Phase 5 worker is live at [verd-phase5-worker.onrender.com](https://verd-phase5-worker.onrender.com). Its `/health` endpoint reports the Postgres connection and worker readiness. The service uses an isolated durable Postgres table and does not rely on Render's local filesystem or SQLite for resume-critical state.
+Verd connects a Creditcoin facility to an Aave V3 reserve action on Ethereum Sepolia. The facility lives on Creditcoin, the reserve is held by a facility-specific locker, and Attestcoin carries authenticated source-chain evidence to the destination chain. When the required reserve action is accepted, Verd activates the agreed Preferred Rate Condition for future interest accrual.
 
-The live restart and idempotency record is in [docs/PHASE5.md](docs/PHASE5.md). The corrected cross-chain contract evidence is in [docs/PHASE3.md](docs/PHASE3.md).
+The current release contains the smart contracts, proof orchestration worker, durable job store, deployment configuration, and verification evidence for the testnet integration.
 
-## How Verd works
+## How the verified flow works
 
 1. A lender creates and funds a fixed-term facility on Creditcoin CC3.
-2. The borrower creates one ReserveLocker for that facility on Ethereum Sepolia.
+2. The borrower creates one `ReserveLocker` for that facility through the Sepolia `ReserveLockerFactory`.
 3. The borrower supplies the approved WETH reserve to Aave V3 with the locker as `onBehalfOf`.
-4. Attestcoin proves the factory configuration and Aave Supply transaction to CC3.
-5. Verd binds the authenticated locker to exactly one facility and activates the preferred APR for future accrual.
-6. The resumable worker persists progress, retries safe infrastructure steps, and checks on-chain state before any retry.
+4. Attestcoin proves the factory event and the Aave Supply receipt to Creditcoin.
+5. Verd authenticates the exact facility, borrower, locker, asset, amount, deadline, and proof state.
+6. Verd binds the locker to exactly one facility and activates the preferred APR.
+7. The worker stores progress in Postgres and resumes safely after restarts or transient infrastructure failures.
 
-## Local setup
+## Live testnet service
 
-Use Node.js 20 or newer and Foundry. Copy `.env.example` to `.env`, then fill the required values locally. Never commit `.env`, private keys, database URLs, or `INTERNAL_TICK_SECRET`.
+The proof worker is deployed at [the live Render service](https://verd-phase5-worker.onrender.com). Check its [health endpoint](https://verd-phase5-worker.onrender.com/health) to see whether the service and its Postgres connection are available.
 
-```text
+The service is testnet-only. It uses Render Postgres for resumable job metadata and does not use the local filesystem or SQLite as a source of truth.
+
+## Evidence
+
+- [Cross-chain contract evidence](docs/PHASE3.md), including the factory event, authenticated locker binding, Aave Supply proof, and preferred-rate readback.
+- [Adversarial and recovery evidence](docs/PHASE4.md), including the Solidity and restart-recovery suites.
+- [Worker reliability evidence](docs/PHASE5.md), including durable state, Render restart recovery, proof progression, and idempotency.
+- [Implementation status](docs/implementation-status.md), with the current product boundary and remaining work.
+- [Hackathon submission record](docs/submission.md), with the judge-facing product summary and evidence map.
+- [Security policy](SECURITY.md), with scope, reporting guidance, and secret-handling rules.
+
+## Run locally
+
+You need Node.js 20 or newer and Foundry. Runtime values belong in a local `.env` file. Start with the safe template and keep private keys, database URLs, and internal secrets out of Git.
+
+```bash
 npm ci
-npm run build
+cp .env.example .env
+npm run typecheck
 npm test
 npm start
 ```
 
-The service exposes:
+To build the Solidity contracts directly:
 
-- `GET /health` and `GET /healthz`
-- authenticated `POST /qualification-jobs`
-- public `GET /job-status/:jobId`
-- authenticated `POST /internal/tick`
-
-## Verification
-
-```text
-npm run typecheck
-npm test
+```bash
+npm run build:contracts
 ```
 
-`npm test` runs the Phase 5 worker suite, Phase 4 recovery suite, and Foundry contracts. The repository also includes [implementation status](docs/implementation-status.md), a [hackathon submission record](docs/submission.md), and a [security policy](SECURITY.md).
+The worker expects the required chain, proof-builder, Postgres, wallet, and internal-authentication values from `.env`. The checked-in [.env.example](.env.example) contains the variable names without secret values.
 
-## Scope and limitations
+## HTTP API
 
-Verd is testnet-only and has no independent security audit. Ethereum and Creditcoin remain authoritative. Postgres stores worker metadata only. Mainnet readiness, production availability, frontend completion, repayment-gated reserve release, and full facility lifecycle evidence are outside the verified scope.
+The worker exposes a small authenticated API for proof jobs.
 
-The live idempotency check used an already-qualified Phase 3 facility, so no new CC3 qualification transaction was sent. Local tests cover the actual send, nonce, receipt, and recovery path. The Render Free Postgres instance has a recorded provider expiry of 2026-09-27.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` or `/healthz` | Service and database readiness |
+| `POST` | `/qualification-jobs` | Register a facility and Sepolia source transaction |
+| `GET` | `/job-status/:jobId` | Read persisted progress and evidence fields |
+| `POST` | `/internal/tick` | Advance one job through the proof workflow |
 
-License state: no license file is declared. Do not reuse or redistribute this repository without permission.
+The two `POST` endpoints require either the `x-internal-tick-secret` header or a bearer token. A job is keyed by `facilityId` plus `sourceTxHash`. Re-registering the same pair is safe, and conflicting durable hints are rejected instead of being silently ignored.
+
+Example local registration request:
+
+```bash
+curl -X POST http://localhost:8787/qualification-jobs \
+  -H "content-type: application/json" \
+  -H "x-internal-tick-secret: <local-secret>" \
+  -d '{"facilityId":"0x...","sourceTxHash":"0x..."}'
+```
+
+## Repository map
+
+| Directory | Contents |
+| --- | --- |
+| `contracts/creditcoin/` | Verd facility, locker binding, proof validation, and lifecycle state |
+| `contracts/ethereum/` | Sepolia `ReserveLocker` and `ReserveLockerFactory` |
+| `src/` | TypeScript worker, HTTP server, chain gateway, configuration, and Postgres store |
+| `scripts/` | Deployment, live verification, and recovery helpers |
+| `test/` | Contract, worker, and recovery tests |
+| `docs/` | Architecture, live evidence, implementation status, and submission notes |
+| `.github/workflows/` | Reproducible CI checks |
+
+## Current boundaries
+
+Verd is a testnet prototype with no independent security audit. The current evidence does not establish Mainnet readiness, production availability, a completed frontend, a complete maturity repayment and reserve-release flow, or an external wake scheduler. Ethereum and Creditcoin remain authoritative. Postgres stores worker metadata only and cannot qualify a facility by itself.
+
+The live idempotency check used an already-qualified testnet facility, so it intentionally created no new CC3 qualification transaction. The local suites cover receipt handling, proof progression, submission intent, nonce recovery, restart recovery, and duplicate prevention. Render Free Postgres has a recorded provider expiry of 2026-09-27.
+
+## License
+
+Released under the [MIT License](LICENSE).
