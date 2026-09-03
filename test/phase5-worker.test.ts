@@ -141,7 +141,12 @@ class FakeChain implements ChainGateway {
     async assertNetworks(): Promise<void> {}
 
     async getFacility(): Promise<FacilitySnapshot> {
-        return { ...this.facility, preferredRateActive: this.preferred };
+        return {
+            ...this.facility,
+            preferredRateActive: this.preferred,
+            qualificationProofId: this.preferred ? PROOF_ID : this.facility.qualificationProofId,
+            qualificationSourceBlock: this.preferred ? 100 : this.facility.qualificationSourceBlock,
+        };
     }
 
     async verifySource(_facility: FacilitySnapshot, _sourceTxHash: string, expectedSourceBlock?: number): Promise<SourceVerification> {
@@ -259,6 +264,22 @@ test("a proof already accepted by the verified Phase 3 contracts is idempotent",
 
     const second = await new ProofWorker(store, chain, config()).tick(job.jobId);
     assert.equal(second.outcome, "idle");
+    assert.equal(chain.sendNonces.length, 0);
+});
+
+test("a proof-ready job reconciles an already-qualified source before submission", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    chain.processed = true;
+    chain.preferred = true;
+    const job = await createJob(store);
+
+    await advanceToProofReady(store, chain, job.jobId);
+    const result = await new ProofWorker(store, chain, config()).tick(job.jobId);
+
+    assert.equal(result.outcome, "completed");
+    assert.equal(result.job?.state.idempotencyOutcome, "proof_already_processed_on_chain");
+    assert.equal(result.job?.state.proofId, PROOF_ID);
     assert.equal(chain.sendNonces.length, 0);
 });
 

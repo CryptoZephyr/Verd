@@ -180,6 +180,24 @@ export class ProofWorker {
             throw new TerminalWorkerError("proof_material_missing", "A proof-ready job has incomplete proof material", job.jobId);
         }
         const facility = await this.facilityFor(job);
+        if (
+            facility.preferredRateActive
+            && facility.qualificationSourceBlock === job.state.sourceBlock
+            && facility.qualificationProofId
+            && !/^0x0{64}$/i.test(facility.qualificationProofId)
+        ) {
+            const existing = await this.chain.readQualification(job.facilityId, facility.qualificationProofId);
+            if (
+                existing.processedProof
+                && existing.preferredRateActive
+                && existing.qualificationSourceBlock === job.state.sourceBlock
+                && sameProof(existing.qualificationProofId, facility.qualificationProofId)
+            ) {
+                job.state = { ...job.state, proofId: facility.qualificationProofId };
+                await this.completeStep(job, leaseToken, "proof_already_processed_on_chain");
+                return;
+            }
+        }
         const qualification = await this.chain.readQualification(job.facilityId, job.state.proofId);
         if (matchingQualification(job.state, qualification)) {
             await this.completeStep(job, leaseToken, "proof_already_processed_on_chain");
