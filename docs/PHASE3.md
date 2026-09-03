@@ -43,4 +43,4 @@ The Aave Supply transaction is `0x47c44c7acd76c34e9b9d2e45f7601690eaa754dae6aff4
 
 Final CC3 readback confirmed `preferredRateActive=true`, `currentAprBps=500`, facility state `PreferredRateConditionActive`, the factory proof marked processed, the supply proof marked processed, the exact locker bound to the facility, and both proof IDs accepted by the CC3 BlockProver. The public checkpoint is `.phase3-factory-state.json`.
 
-The previous direct-cross-chain locker attempt remains preserved in `.phase3-state.json` as historical evidence. It was not reused. Render configuration was not touched.
+The previous direct-cross-chain locker attempt remains preserved in `.phase3-state.json` as historical evidence. It was not reused. The later Phase 5 Render deployment and backend evidence are recorded in [PHASE5.md](PHASE5.md).

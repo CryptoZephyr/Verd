@@ -10,6 +10,8 @@
     "build:contracts": "forge build",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run test:phase5 && npm run phase4:recovery && npm run test:contracts",
+    "test:contracts": "forge test -vv",
     "test:phase5": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/phase5-worker.test.js",
     "phase0:deploy-cc3": "node scripts/phase0-deploy-cc3.mjs",
     "phase0:source": "node scripts/phase0-source.mjs",
@@ -25,7 +27,7 @@
     "@gluwa/usc-contracts": "0.2.0",
     "@gluwa/usc-sdk": "0.18.0",
     "dotenv": "16.6.1",
-    "ethers": "6.15.0",
+    "ethers": "6.17.0",
     "pg": "^8.16.3"
   },
   "devDependencies": {

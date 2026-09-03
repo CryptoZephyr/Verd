@@ -67,6 +67,21 @@ function createState(input: JobInput, jobId: string): JobState {
     };
 }
 
+export function assertCompatibleJobRegistration(existing: JobRecord, input: JobInput): void {
+    const checks: Array<[unknown, unknown]> = [
+        [input.proofId, existing.state.proofId],
+        [input.sourceBlock, existing.state.sourceBlock],
+        [input.cc3SubmissionTxHash, existing.state.cc3SubmissionTxHash],
+    ];
+    for (const [incoming, persisted] of checks) {
+        if (incoming === undefined) continue;
+        const matches = typeof incoming === "string" && typeof persisted === "string"
+            ? incoming.toLowerCase() === persisted.toLowerCase()
+            : incoming === persisted;
+        if (!matches) throw new BadRequestError("job registration conflicts with existing durable state");
+    }
+}
+
 export class PostgresJobStore implements JobStore {
     private readonly pool: Pool;
     private readonly leaseSeconds: number;
@@ -119,6 +134,7 @@ export class PostgresJobStore implements JobStore {
                 [facilityId, sourceTxHash],
             );
             if (existing.rowCount) {
+                assertCompatibleJobRegistration(mapRow(existing.rows[0]), normalized);
                 await client.query("COMMIT");
                 return { job: mapRow(existing.rows[0]), created: false };
             }
@@ -151,7 +167,11 @@ export class PostgresJobStore implements JobStore {
                     "SELECT job_id, facility_id, source_tx_hash, state, created_at FROM verd_phase5_qualification_jobs WHERE facility_id = $1 AND source_tx_hash = $2",
                     [facilityId, sourceTxHash],
                 );
-                if (existing.rowCount) return { job: mapRow(existing.rows[0]), created: false };
+                if (existing.rowCount) {
+                    const job = mapRow(existing.rows[0]);
+                    assertCompatibleJobRegistration(job, normalized);
+                    return { job, created: false };
+                }
             }
             throw error;
         } finally {

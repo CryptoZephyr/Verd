@@ -35,3 +35,9 @@ Restart recovery was verified with job `job_7c8b5ac0c7a96ee93607aa1e2d8665b4fcda
 The proof-ready job then completed idempotently against the already-qualified Phase 3 facility. The live status is `completed`, `terminal=true`, `sourceBlock=11622931`, `proofId=0xecf7b48177ca61de7449400db6318d799c005b3322e4a858bc4e016efbd395e6`, `proofSdkValid=true`, and `idempotencyOutcome=proof_already_processed_on_chain`. No CC3 submission nonce or transaction hash was created. Re-registering the same facility and source returned `created=false` with the same job ID. A repeated tick returned `idle` with the completed state. An unauthenticated tick returned HTTP 401.
 
 The worker therefore has verified cold-start, durable restart recovery, source receipt and event validation, bounded Attestcoin polling, proof generation and SDK verification, authoritative CC3 readback, and duplicate-submission protection. No Phase 6 frontend work has started. The external wake-source checkbox remains future work because this gate used authenticated manual ticks.
+
+## Repository release audit
+
+The follow-up repository hardening keeps durable job registration idempotent when optional proof hints are supplied again, rejects invalid runtime URLs, non-Sepolia source-chain keys, invalid private keys, invalid Postgres URLs, oversized ports, and non-positive numeric settings, and keeps all secret values outside the repository.
+
+The dependency audit is clean after upgrading `ethers` to `6.17.0`. The native verification workflow is `.github/workflows/ci.yml`, and the aggregate local command is `npm test`.

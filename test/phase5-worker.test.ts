@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { Config } from "../src/config.js";
+import { loadConfig, type Config } from "../src/config.js";
 import { createHttpServer } from "../src/server.js";
+import { assertCompatibleJobRegistration } from "../src/db.js";
 import { RetryableWorkerError } from "../src/errors.js";
 import { deriveJobId, nowIso } from "../src/utils.js";
 import { ProofWorker } from "../src/worker.js";
@@ -267,6 +268,28 @@ test("a proof already accepted by the verified Phase 3 contracts is idempotent",
     assert.equal(chain.sendNonces.length, 0);
 });
 
+test("job registration rejects conflicting durable proof hints", async () => {
+    const store = new MemoryJobStore();
+    const job = await createJob(store, { proofId: PROOF_ID, sourceBlock: 100 });
+
+    assert.doesNotThrow(() => assertCompatibleJobRegistration(job, {
+        facilityId: FACILITY_ID,
+        sourceTxHash: SOURCE_TX_HASH,
+        proofId: PROOF_ID.toUpperCase(),
+        sourceBlock: 100,
+    }));
+    assert.throws(() => assertCompatibleJobRegistration(job, {
+        facilityId: FACILITY_ID,
+        sourceTxHash: SOURCE_TX_HASH,
+        proofId: `0x${"aa".repeat(32)}`,
+    }), /conflicts with existing durable state/);
+    assert.throws(() => assertCompatibleJobRegistration(job, {
+        facilityId: FACILITY_ID,
+        sourceTxHash: SOURCE_TX_HASH,
+        sourceBlock: 101,
+    }), /conflicts with existing durable state/);
+});
+
 test("a proof-ready job reconciles an already-qualified source before submission", async () => {
     const store = new MemoryJobStore();
     const chain = new FakeChain();
@@ -340,5 +363,48 @@ test("health, registration, and status routes enforce the internal secret", asyn
         assert.equal((await status.json()).nextAction, "wait_source_transaction");
     } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+});
+
+test("runtime configuration rejects a non-Sepolia source chain and oversized port", () => {
+    const names = [
+        "INTERNAL_TICK_SECRET",
+        "SOURCE_CHAIN_KEY",
+        "PORT",
+        "DATABASE_URL",
+        "PRIVATE_KEY",
+        "SEPOLIA_RPC_URL",
+        "CC3_RPC_URL",
+        "PROOF_BUILDER_URL",
+        "VERD_ADDRESS",
+    ];
+    const original = new Map(names.map((name) => [name, process.env[name]]));
+    const valid = {
+        INTERNAL_TICK_SECRET: "phase5-config-secret-1234",
+        SOURCE_CHAIN_KEY: "1",
+        PORT: "10000",
+        DATABASE_URL: "postgres://config-test",
+        PRIVATE_KEY: `0x${"99".repeat(32)}`,
+        SEPOLIA_RPC_URL: "https://sepolia.test",
+        CC3_RPC_URL: "https://cc3.test",
+        PROOF_BUILDER_URL: "https://proof.test",
+        VERD_ADDRESS: `0x${"aa".repeat(20)}`,
+    };
+    try {
+        for (const [name, value] of Object.entries(valid)) process.env[name] = value;
+        assert.equal(loadConfig().sourceChainKey, 1);
+
+        process.env.SOURCE_CHAIN_KEY = "2";
+        assert.throws(() => loadConfig(), /SOURCE_CHAIN_KEY/);
+
+        process.env.SOURCE_CHAIN_KEY = "1";
+        process.env.PORT = "65536";
+        assert.throws(() => loadConfig(), /PORT/);
+    } finally {
+        for (const name of names) {
+            const value = original.get(name);
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+        }
     }
 });

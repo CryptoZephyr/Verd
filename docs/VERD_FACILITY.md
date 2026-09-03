@@ -42,4 +42,4 @@ forge test -vv
 42 passed, 0 failed, 0 skipped
 ```
 
-The corrected live Phase 3 flow is documented in `docs/PHASE3.md`, with the factory creation, binding, Supply, proof, qualification, and final-state evidence. The public live checkpoint is `.phase3-factory-state.json`. Render was left unchanged.
+The corrected live Phase 3 flow is documented in `docs/PHASE3.md`, with the factory creation, binding, Supply, proof, qualification, and final-state evidence. The public live checkpoint is `.phase3-factory-state.json`. The later Phase 5 Render deployment and backend evidence are recorded in `docs/PHASE5.md`.

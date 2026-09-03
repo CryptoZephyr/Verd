@@ -25,6 +25,8 @@ services:
         sync: false
       - key: SOURCE_CHAIN_KEY
         value: "1"
+      - key: MAX_BODY_BYTES
+        value: "65536"
       - key: CC3_GAS_LIMIT
         value: "9000000"
       - key: WORKER_LEASE_SECONDS
