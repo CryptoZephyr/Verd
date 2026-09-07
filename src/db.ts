@@ -51,6 +51,7 @@ function createState(input: JobInput, jobId: string): JobState {
     const now = nowIso();
     return {
         version: 1,
+        operation: input.operation ?? "qualification",
         jobId,
         facilityId: input.facilityId,
         sourceTxHash: input.sourceTxHash,
@@ -69,6 +70,7 @@ function createState(input: JobInput, jobId: string): JobState {
 
 export function assertCompatibleJobRegistration(existing: JobRecord, input: JobInput): void {
     const checks: Array<[unknown, unknown]> = [
+        [input.operation ?? "qualification", existing.state.operation ?? "qualification"],
         [input.proofId, existing.state.proofId],
         [input.sourceBlock, existing.state.sourceBlock],
         [input.cc3SubmissionTxHash, existing.state.cc3SubmissionTxHash],

@@ -1,6 +1,6 @@
 {
   "name": "verd-phase5-worker",
-  "description": "Testnet working-capital credit on Creditcoin with authenticated Ethereum reserve proofs through Attestcoin and Aave.",
+  "description": "Testnet fixed-term working-capital credit with a preferred rate tied to a verified WETH reserve on Ethereum.",
   "private": true,
   "license": "MIT",
   "type": "module",

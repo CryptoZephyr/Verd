@@ -1,17 +1,20 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { loadConfig, type Config } from "./config.js";
-import { BadRequestError } from "./errors.js";
+import { BadRequestError, TerminalWorkerError } from "./errors.js";
 import { PostgresJobStore } from "./db.js";
 import { LiveChainGateway } from "./chain.js";
 import { cleanError, timingSafeEqualText } from "./utils.js";
 import { ProofWorker } from "./worker.js";
-import type { JobInput, JobRecord, JobStore } from "./types.js";
+import type { JobInput, JobOperation, JobRecord, JobStore } from "./types.js";
 
 function json(res: ServerResponse, status: number, payload: unknown): void {
     const body = JSON.stringify(payload);
     res.statusCode = status;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.setHeader("cache-control", "no-store");
+    res.setHeader("access-control-allow-origin", "*");
+    res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+    res.setHeader("access-control-allow-headers", "content-type,authorization,x-internal-tick-secret");
     res.end(body);
 }
 
@@ -19,6 +22,7 @@ function publicJob(job: JobRecord): Record<string, unknown> {
     const state = job.state;
     return {
         jobId: job.jobId,
+        operation: state.operation ?? "qualification",
         facilityId: job.facilityId,
         sourceTxHash: job.sourceTxHash,
         status: state.status,
@@ -93,6 +97,8 @@ function optionalHash(value: unknown, name: string): string | undefined {
 }
 
 function jobInput(payload: Record<string, unknown>): JobInput {
+    const operation = payload.operation === undefined ? "qualification" : payload.operation;
+    if (operation !== "qualification" && operation !== "binding") throw new BadRequestError("operation must be qualification or binding");
     const sourceBlock = payload.sourceBlock === undefined || payload.sourceBlock === null || payload.sourceBlock === ""
         ? undefined
         : Number(payload.sourceBlock);
@@ -105,6 +111,7 @@ function jobInput(payload: Record<string, unknown>): JobInput {
         throw new BadRequestError("proofId is required when cc3SubmissionTxHash is supplied");
     }
     return {
+        operation: operation as JobOperation,
         facilityId: stringField(payload.facilityId, "facilityId"),
         sourceTxHash: stringField(payload.sourceTxHash, "sourceTxHash"),
         proofId,
@@ -121,6 +128,14 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
         const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
 
         try {
+            if (method === "OPTIONS") {
+                res.setHeader("access-control-allow-origin", "*");
+                res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+                res.setHeader("access-control-allow-headers", "content-type,authorization,x-internal-tick-secret");
+                res.statusCode = 204;
+                res.end();
+                return;
+            }
             if (method === "GET" && (pathname === "/health" || pathname === "/healthz")) {
                 await store.ping();
                 json(res, 200, {
@@ -129,7 +144,7 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
                     phase: "phase5",
                     database: "ok",
                     worker: "ready",
-                    phase6Started: false,
+                    phase6Started: true,
                     timestamp: new Date().toISOString(),
                 });
                 return;
@@ -160,6 +175,22 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
                 return;
             }
 
+            if (method === "POST" && pathname === "/public/qualification-jobs") {
+                const payload = await body(req, config.maxBodyBytes);
+                const walletAddress = stringField(payload.walletAddress, "walletAddress");
+                const signature = stringField(payload.signature, "signature");
+                const issuedAt = Number(payload.issuedAt);
+                if (!Number.isSafeInteger(issuedAt)) throw new BadRequestError("issuedAt must be a millisecond timestamp");
+                const input = jobInput(payload);
+                const result = await worker.registerBorrowerJob(input, walletAddress, signature, issuedAt);
+                json(res, result.created ? 201 : 200, {
+                    created: result.created,
+                    idempotencyKey: `${result.job.facilityId}|${result.job.sourceTxHash}`,
+                    job: publicJob(result.job),
+                });
+                return;
+            }
+
             if (method === "POST" && pathname === "/internal/tick") {
                 if (!authorized(req, config)) {
                     json(res, 401, { error: "unauthorized" });
@@ -179,7 +210,7 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
                 json(res, 200, {
                     service: "verd-phase5-worker",
                     phase: "phase5",
-                    endpoints: ["GET /health", "POST /qualification-jobs", "GET /job-status/:jobId", "POST /internal/tick"],
+                    endpoints: ["GET /health", "POST /public/qualification-jobs", "GET /job-status/:jobId", "POST /internal/tick"],
                 });
                 return;
             }
@@ -188,6 +219,10 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
         } catch (error) {
             if (error instanceof BadRequestError) {
                 json(res, 400, { error: "bad_request", message: error.message });
+                return;
+            }
+            if (error instanceof TerminalWorkerError) {
+                json(res, 422, { error: error.category, message: error.message });
                 return;
             }
             console.error(JSON.stringify({ event: "request_failed", path: pathname, method, error: cleanError(error) }));

@@ -1,15 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ethers } from "ethers";
 import { loadConfig, type Config } from "../src/config.js";
 import { createHttpServer } from "../src/server.js";
 import { assertCompatibleJobRegistration } from "../src/db.js";
 import { RetryableWorkerError } from "../src/errors.js";
 import { deriveJobId, nowIso } from "../src/utils.js";
-import { ProofWorker } from "../src/worker.js";
+import { ProofWorker, qualificationJobMessage } from "../src/worker.js";
 import type {
+    BindingSnapshot,
+    BindingSourceVerification,
     ChainGateway,
     ClaimedJob,
     FacilitySnapshot,
+    FacilityTermsSnapshot,
     GeneratedProof,
     JobInput,
     JobRecord,
@@ -65,6 +69,7 @@ class MemoryJobStore implements JobStore {
         const createdAt = nowIso();
         const state: JobState = {
             version: 1,
+            operation: input.operation ?? "qualification",
             jobId,
             facilityId: input.facilityId,
             sourceTxHash: input.sourceTxHash,
@@ -150,6 +155,10 @@ class FakeChain implements ChainGateway {
         };
     }
 
+    async getFacilityTerms(): Promise<FacilityTermsSnapshot> {
+        return { facilityId: FACILITY_ID, borrower: this.facility.borrower, maturity: this.facility.maturity };
+    }
+
     async verifySource(_facility: FacilitySnapshot, _sourceTxHash: string, expectedSourceBlock?: number): Promise<SourceVerification> {
         if (expectedSourceBlock !== undefined) assert.equal(expectedSourceBlock, 100);
         return {
@@ -166,6 +175,11 @@ class FakeChain implements ChainGateway {
         };
     }
 
+    async verifyBindingSource(_facility: FacilityTermsSnapshot, _sourceTxHash: string, expectedSourceBlock?: number): Promise<BindingSourceVerification> {
+        if (expectedSourceBlock !== undefined) assert.equal(expectedSourceBlock, 100);
+        return { sourceBlock: 100, receiptStatus: 1, locker: LOCKER, borrower: BORROWER, unlockTime: 200 };
+    }
+
     async waitForAttestation(): Promise<void> {}
 
     async generateProof(): Promise<GeneratedProof> {
@@ -179,6 +193,10 @@ class FakeChain implements ChainGateway {
             qualificationProofId: this.processed ? proofId : `0x${"00".repeat(32)}`,
             qualificationSourceBlock: this.processed ? 100 : 0,
         };
+    }
+
+    async readBinding(_facilityId: string, proofId: string): Promise<BindingSnapshot> {
+        return { bindingProofId: this.processed ? proofId : `0x${"00".repeat(32)}`, bindingSourceBlock: this.processed ? 100 : 0, locker: LOCKER };
     }
 
     async reserveSubmissionNonce(): Promise<number> {
@@ -200,6 +218,12 @@ class FakeChain implements ChainGateway {
             throw new RetryableWorkerError("cc3_submission_unavailable", "temporary test transport failure");
         }
         return `0x${"ab".repeat(32)}`;
+    }
+
+    async sendBinding(_facilityId: string, _proof: SerializedProof, nonce: number): Promise<string> {
+        this.sendNonces.push(nonce);
+        this.processed = true;
+        return `0x${"bc".repeat(32)}`;
     }
 
     async getReceipt(): Promise<SubmissionReceipt | null> {
@@ -341,6 +365,19 @@ test("health, registration, and status routes enforce the internal secret", asyn
         assert.equal(health.status, 200);
         assert.equal((await health.json()).phase, "phase5");
 
+        const publicBorrower = ethers.Wallet.createRandom();
+        chain.facility.borrower = publicBorrower.address;
+        const publicInput = { facilityId: FACILITY_ID, sourceTxHash: `0x${"23".repeat(32)}`, sourceBlock: 100 };
+        const issuedAt = Date.now();
+        const signature = await publicBorrower.signMessage(qualificationJobMessage(publicInput, issuedAt));
+        const publicRegistration = await fetch(`${base}/public/qualification-jobs`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ...publicInput, walletAddress: publicBorrower.address, signature, issuedAt }),
+        });
+        assert.equal(publicRegistration.status, 201);
+        assert.equal(publicRegistration.headers.get("access-control-allow-origin"), "*");
+
         const unauthorized = await fetch(`${base}/qualification-jobs`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -364,6 +401,41 @@ test("health, registration, and status routes enforce the internal secret", asyn
     } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
+});
+
+test("borrower-signed public qualification registration is idempotent and scoped", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    const borrower = ethers.Wallet.createRandom();
+    chain.facility.borrower = borrower.address;
+    const worker = new ProofWorker(store, chain, config());
+    const input = { facilityId: FACILITY_ID, sourceTxHash: SOURCE_TX_HASH, sourceBlock: 100 };
+    const issuedAt = Date.now();
+    const signature = await borrower.signMessage(qualificationJobMessage(input, issuedAt));
+
+    const first = await worker.registerBorrowerJob(input, borrower.address, signature, issuedAt);
+    const second = await worker.registerBorrowerJob(input, borrower.address, signature, issuedAt);
+    assert.equal(first.created, true);
+    assert.equal(second.created, false);
+    await assert.rejects(
+        () => worker.registerBorrowerJob(input, ethers.Wallet.createRandom().address, signature, issuedAt),
+        /signed wallet address does not match/,
+    );
+});
+
+test("binding jobs prove a factory locker and recover through the same durable worker path", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    const job = await createJob(store, { operation: "binding", sourceTxHash: `0x${"24".repeat(32)}` });
+    const worker = new ProofWorker(store, chain, config());
+    await worker.tick(job.jobId);
+    await worker.tick(job.jobId);
+    await worker.tick(job.jobId);
+    const submitted = await worker.tick(job.jobId);
+    assert.equal(submitted.outcome, "advanced");
+    const completed = await worker.tick(job.jobId);
+    assert.equal(completed.outcome, "completed");
+    assert.equal(completed.job?.state.idempotencyOutcome, "binding_already_processed_on_chain");
 });
 
 test("runtime configuration rejects a non-Sepolia source chain and oversized port", () => {

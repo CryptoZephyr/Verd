@@ -7,6 +7,8 @@ export type JobStatus =
     | "completed"
     | "manual_review";
 
+export type JobOperation = "qualification" | "binding";
+
 export type NextAction =
     | "wait_source_transaction"
     | "wait_attestcoin"
@@ -48,6 +50,26 @@ export interface FacilitySnapshot {
     lockerUnlockTime: number;
 }
 
+export interface FacilityTermsSnapshot {
+    facilityId: string;
+    borrower: string;
+    maturity: number;
+}
+
+export interface BindingSourceVerification {
+    sourceBlock: number;
+    receiptStatus: number;
+    locker: string;
+    borrower: string;
+    unlockTime: number;
+}
+
+export interface BindingSnapshot {
+    bindingProofId: string;
+    bindingSourceBlock: number;
+    locker: string;
+}
+
 export interface SourceVerification {
     sourceBlock: number;
     receiptStatus: number;
@@ -83,22 +105,27 @@ export interface SubmissionReceipt {
 export interface ChainGateway {
     assertNetworks(): Promise<void>;
     getFacility(facilityId: string): Promise<FacilitySnapshot>;
+    getFacilityTerms(facilityId: string): Promise<FacilityTermsSnapshot>;
     verifySource(
         facility: FacilitySnapshot,
         sourceTxHash: string,
         expectedSourceBlock?: number,
     ): Promise<SourceVerification>;
+    verifyBindingSource(facility: FacilityTermsSnapshot, sourceTxHash: string, expectedSourceBlock?: number): Promise<BindingSourceVerification>;
     waitForAttestation(sourceBlock: number): Promise<void>;
     generateProof(sourceTxHash: string, sourceBlock: number): Promise<GeneratedProof>;
     readQualification(facilityId: string, proofId: string): Promise<QualificationSnapshot>;
+    readBinding(facilityId: string, proofId: string): Promise<BindingSnapshot>;
     reserveSubmissionNonce(): Promise<number>;
     getSubmissionNonceState(): Promise<{ latest: number; pending: number }>;
     findSubmissionByNonce(nonce: number): Promise<string | null>;
     sendQualification(facilityId: string, proof: SerializedProof, nonce: number): Promise<string>;
+    sendBinding(facilityId: string, proof: SerializedProof, nonce: number): Promise<string>;
     getReceipt(txHash: string): Promise<SubmissionReceipt | null>;
 }
 
 export interface JobInput {
+    operation?: JobOperation;
     facilityId: string;
     sourceTxHash: string;
     proofId?: string;
@@ -108,6 +135,7 @@ export interface JobInput {
 
 export interface JobState {
     version: 1;
+    operation: JobOperation;
     jobId: string;
     facilityId: string;
     sourceTxHash: string;
@@ -124,6 +152,8 @@ export interface JobState {
     sourceReceiptStatus?: number;
     sourceEvent?: SourceVerification["event"];
     lockerATokenBalance?: string;
+    bindingLocker?: string;
+    bindingUnlockTime?: number;
     proofId?: string;
     proof?: SerializedProof;
     proofSdkValid?: boolean;

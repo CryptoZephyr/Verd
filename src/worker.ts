@@ -1,10 +1,15 @@
+import { ethers } from "ethers";
 import { RetryableWorkerError, TerminalWorkerError } from "./errors.js";
 import type { Config } from "./config.js";
-import { cleanError, isLikelyRetryable, nowIso } from "./utils.js";
+import { cleanError, isLikelyRetryable, nowIso, sameAddress } from "./utils.js";
 import type {
+    BindingSnapshot,
     ChainGateway,
     ClaimedJob,
     FacilitySnapshot,
+    FacilityTermsSnapshot,
+    JobInput,
+    JobOperation,
     JobRecord,
     JobState,
     JobStore,
@@ -22,6 +27,13 @@ function matchingQualification(
         && qualification.qualificationSourceBlock === state.sourceBlock;
 }
 
+function matchingBinding(state: JobState, binding: BindingSnapshot): boolean {
+    return Boolean(state.proofId)
+        && binding.bindingProofId.toLowerCase() === state.proofId!.toLowerCase()
+        && binding.bindingSourceBlock === state.sourceBlock
+        && !/^0x0{40}$/i.test(binding.locker);
+}
+
 function sameProof(left: string, right: string): boolean {
     return left.toLowerCase() === right.toLowerCase();
 }
@@ -36,6 +48,33 @@ export class ProofWorker {
         this.store = store;
         this.chain = chain;
         this.config = config;
+    }
+
+    async registerBorrowerJob(input: JobInput, walletAddress: string, signature: string, issuedAt: number): Promise<{ job: JobRecord; created: boolean }> {
+        const now = Date.now();
+        if (!ethers.isAddress(walletAddress)) {
+            throw new TerminalWorkerError("job_wallet_invalid", "The wallet address is invalid");
+        }
+        if (!Number.isSafeInteger(issuedAt) || Math.abs(now - issuedAt) > 5 * 60 * 1000) {
+            throw new TerminalWorkerError("job_signature_expired", "The wallet authorization has expired");
+        }
+        const message = qualificationJobMessage(input, issuedAt);
+        let recovered: string;
+        try {
+            recovered = ethers.verifyMessage(message, signature);
+        } catch {
+            throw new TerminalWorkerError("job_signature_invalid", "The wallet authorization is invalid");
+        }
+        if (!sameAddress(recovered, walletAddress)) {
+            throw new TerminalWorkerError("job_signer_mismatch", "The signed wallet address does not match the request");
+        }
+        const facility = input.operation === "binding"
+            ? await this.chain.getFacilityTerms(input.facilityId)
+            : await this.chain.getFacility(input.facilityId);
+        if (!sameAddress(facility.borrower, recovered)) {
+            throw new TerminalWorkerError("job_borrower_mismatch", "Only the facility borrower can register its qualification job");
+        }
+        return this.store.createJob(input);
     }
 
     async tick(jobId?: string): Promise<TickResult> {
@@ -99,8 +138,39 @@ export class ProofWorker {
         return this.chain.getFacility(job.facilityId);
     }
 
+    private async facilityTermsFor(job: JobRecord): Promise<FacilityTermsSnapshot> {
+        return this.chain.getFacilityTerms(job.facilityId);
+    }
+
     private async sourceStep(claimed: ClaimedJob): Promise<void> {
         const { job, leaseToken } = claimed;
+        if (job.state.operation === "binding") {
+            const facility = await this.facilityTermsFor(job);
+            const source = await this.chain.verifyBindingSource(facility, job.sourceTxHash, job.state.sourceBlock);
+            job.state = {
+                ...job.state,
+                status: job.state.cc3SubmissionTxHash ? "cc3_submission_pending" : "attestation_pending",
+                nextAction: job.state.cc3SubmissionTxHash ? "check_cc3_submission" : "wait_attestcoin",
+                sourceBlock: source.sourceBlock,
+                sourceReceiptStatus: source.receiptStatus,
+                bindingLocker: source.locker,
+                bindingUnlockTime: source.unlockTime,
+                lastErrorCategory: undefined,
+                lastErrorMessage: undefined,
+            };
+            if (job.state.proofId) {
+                const binding = await this.chain.readBinding(job.facilityId, job.state.proofId);
+                if (matchingBinding(job.state, binding)) {
+                    await this.completeStep(job, leaseToken, "binding_already_processed_on_chain");
+                    return;
+                }
+                if (!/^0x0{64}$/i.test(binding.bindingProofId)) {
+                    throw new TerminalWorkerError("facility_already_bound_with_different_proof", "The facility has binding evidence that does not match this job", job.facilityId);
+                }
+            }
+            await this.store.saveJob(job, leaseToken, true);
+            return;
+        }
         const facility = await this.facilityFor(job);
         const source = await this.chain.verifySource(facility, job.sourceTxHash, job.state.sourceBlock);
         const nextStatus = job.state.cc3SubmissionTxHash
@@ -179,6 +249,25 @@ export class ProofWorker {
         if (!job.state.proof || !job.state.proofId || job.state.sourceBlock === undefined) {
             throw new TerminalWorkerError("proof_material_missing", "A proof-ready job has incomplete proof material", job.jobId);
         }
+        if (job.state.operation === "binding") {
+            const proof = job.state.proof;
+            if (!proof) throw new TerminalWorkerError("submission_proof_missing", "The durable submission intent has no proof payload", job.jobId);
+            const binding = await this.chain.readBinding(job.facilityId, job.state.proofId);
+            if (matchingBinding(job.state, binding)) {
+                await this.completeStep(job, leaseToken, "binding_already_processed_on_chain");
+                return;
+            }
+            if (!/^0x0{64}$/i.test(binding.bindingProofId)) {
+                throw new TerminalWorkerError("proof_already_used_or_facility_bound", "CC3 state prevents this binding proof from being submitted safely", job.facilityId);
+            }
+            const nonce = job.state.cc3SubmissionNonce ?? await this.chain.reserveSubmissionNonce();
+            job.state = { ...job.state, status: "cc3_submission_pending", nextAction: "check_cc3_submission", cc3SubmissionNonce: nonce };
+            await this.store.saveJob(job, leaseToken, false);
+            const txHash = await this.chain.sendBinding(job.facilityId, proof, nonce);
+            job.state = { ...job.state, cc3SubmissionTxHash: txHash, lastErrorCategory: undefined, lastErrorMessage: undefined };
+            await this.store.saveJob(job, leaseToken, true);
+            return;
+        }
         const facility = await this.facilityFor(job);
         if (
             facility.preferredRateActive
@@ -241,6 +330,35 @@ export class ProofWorker {
         const { job, leaseToken } = claimed;
         if (!job.state.proofId || job.state.sourceBlock === undefined) {
             throw new TerminalWorkerError("proof_material_missing", "A pending CC3 submission has no proof identity", job.jobId);
+        }
+
+        if (job.state.operation === "binding") {
+            const before = await this.chain.readBinding(job.facilityId, job.state.proofId);
+            if (matchingBinding(job.state, before)) {
+                await this.completeStep(job, leaseToken, "binding_already_processed_on_chain");
+                return;
+            }
+            if (job.state.cc3SubmissionTxHash) {
+                const receipt = await this.chain.getReceipt(job.state.cc3SubmissionTxHash);
+                if (!receipt) throw new RetryableWorkerError("cc3_submission_pending", "The CC3 submission receipt is not available", job.state.cc3SubmissionTxHash);
+                if (receipt.status !== 1) throw new TerminalWorkerError("cc3_submission_reverted", "The CC3 binding transaction reverted", job.state.cc3SubmissionTxHash);
+                const after = await this.chain.readBinding(job.facilityId, job.state.proofId);
+                if (!matchingBinding(job.state, after)) throw new TerminalWorkerError("cc3_state_readback_failed", "The successful CC3 receipt did not produce the expected binding state", job.facilityId);
+                job.state = { ...job.state, cc3Receipt: receipt };
+                await this.completeStep(job, leaseToken, "binding_receipt_confirmed");
+                return;
+            }
+            if (job.state.cc3SubmissionNonce === undefined) throw new TerminalWorkerError("submission_nonce_missing", "A pending submission has no durable nonce", job.jobId);
+            const recoveredHash = await this.chain.findSubmissionByNonce(job.state.cc3SubmissionNonce);
+            if (recoveredHash) { job.state = { ...job.state, cc3SubmissionTxHash: recoveredHash }; await this.store.saveJob(job, leaseToken, true); return; }
+            const nonceState = await this.chain.getSubmissionNonceState();
+            if (nonceState.latest > job.state.cc3SubmissionNonce) throw new TerminalWorkerError("submission_nonce_consumed_without_proof", "The durable submission nonce was consumed without the expected binding state", job.facilityId);
+            if (nonceState.pending > job.state.cc3SubmissionNonce) throw new RetryableWorkerError("submission_nonce_pending", "A transaction is still pending at the reserved nonce", job.facilityId);
+            if (!job.state.proof) throw new TerminalWorkerError("submission_proof_missing", "The durable submission intent has no proof payload", job.jobId);
+            const txHash = await this.chain.sendBinding(job.facilityId, job.state.proof, job.state.cc3SubmissionNonce);
+            job.state = { ...job.state, cc3SubmissionTxHash: txHash };
+            await this.store.saveJob(job, leaseToken, true);
+            return;
         }
 
         const before = await this.chain.readQualification(job.facilityId, job.state.proofId);
@@ -340,4 +458,15 @@ export class ProofWorker {
             message: terminal ? "Manual review required" : "Retryable worker condition recorded",
         };
     }
+}
+
+export function qualificationJobMessage(input: JobInput, issuedAt: number): string {
+    return [
+        "Verd qualification job",
+        `Operation: ${input.operation ?? "qualification"}`,
+        `Facility: ${input.facilityId}`,
+        `Source transaction: ${input.sourceTxHash}`,
+        `Source block: ${input.sourceBlock ?? "not supplied"}`,
+        `Issued at: ${issuedAt}`,
+    ].join("\n");
 }

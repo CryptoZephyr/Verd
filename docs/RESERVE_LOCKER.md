@@ -1,6 +1,6 @@
 # ReserveLocker hardening
 
-Status: Phase 1 hardening is verified locally. Phase 4 is complete. Phase 5 proof worker and Render Free backend verification is complete. Phase 6 frontend work has not started.
+Status: The immutable locker boundary and release invariants are covered by the local contract suite and the current testnet integration.
 
 ## Contract boundary
 

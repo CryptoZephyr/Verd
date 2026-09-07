@@ -1,6 +1,6 @@
 # Verd facility core
 
-Status: Phase 2, the corrected Phase 3 path, Phase 4 adversarial and recovery verification, and Phase 5 proof worker and Render Free backend verification are complete. Phase 6 frontend work has not started.
+Status: The facility contract, authenticated cross-chain path, worker integration, and public interface are implemented within the current testnet boundary. See [implementation status](implementation-status.md) for the current evidence limits.
 
 ## Facility contract
 
@@ -33,7 +33,7 @@ The constructor fixes the USC proof verifier, the approved Sepolia `ReserveLocke
 
 ## Event coverage
 
-Phase 2 event coverage is complete. `Verd` emits `FacilityCreated`, `ReserveLockerBound`, `FacilityFunded`, `FacilityDrawn`, `InterestAccrued`, `PreferredRateConditionActivated`, and `FacilityRepaid`. `ReserveLocker` emits `ReserveReleased`, and `ReserveLockerFactory` emits `ReserveLockerCreated`. Release truth belongs to `ReserveLocker`, so `Verd` does not duplicate that event.
+Contract event coverage is complete. `Verd` emits `FacilityCreated`, `ReserveLockerBound`, `FacilityFunded`, `FacilityDrawn`, `InterestAccrued`, `PreferredRateConditionActivated`, and `FacilityRepaid`. `ReserveLocker` emits `ReserveReleased`, and `ReserveLockerFactory` emits `ReserveLockerCreated`. Release truth belongs to `ReserveLocker`, so `Verd` does not duplicate that event.
 
 ## Validation evidence
 
@@ -42,4 +42,4 @@ forge test -vv
 42 passed, 0 failed, 0 skipped
 ```
 
-The corrected live Phase 3 flow is documented in `docs/PHASE3.md`, with the factory creation, binding, Supply, proof, qualification, and final-state evidence. The public live checkpoint is `.phase3-factory-state.json`. The later Phase 5 Render deployment and backend evidence are recorded in `docs/PHASE5.md`.
+The factory creation, binding, Supply, proof, qualification, and final-state records are summarized in [the public evidence record](VERIFIED_EVIDENCE.md). Historical test records remain in the repository for reproducibility but are not part of the product navigation.

@@ -1,12 +1,15 @@
 import { createRequire } from "node:module";
 import { ethers, type JsonRpcProvider, type TransactionReceipt } from "ethers";
-import { ADDRESSES, AAVE_POOL_ABI, LOCKER_ABI, VERD_ABI } from "./abi.js";
+import { ADDRESSES, AAVE_POOL_ABI, LOCKER_ABI, RESERVE_LOCKER_FACTORY_ABI, VERD_ABI } from "./abi.js";
 import type { Config } from "./config.js";
 import { RetryableWorkerError, TerminalWorkerError } from "./errors.js";
 import { cleanError, isLikelyRetryable, jsonSafe, sameAddress } from "./utils.js";
 import type {
     ChainGateway,
+    BindingSnapshot,
+    BindingSourceVerification,
     FacilitySnapshot,
+    FacilityTermsSnapshot,
     GeneratedProof,
     QualificationSnapshot,
     SerializedProof,
@@ -167,6 +170,21 @@ export class LiveChainGateway implements ChainGateway {
         }
     }
 
+    async getFacilityTerms(facilityId: string): Promise<FacilityTermsSnapshot> {
+        try {
+            const raw = await this.verd.getFacility(facilityId);
+            const borrower = String(raw[1]);
+            if (sameAddress(borrower, ZERO_ADDRESS)) {
+                throw new TerminalWorkerError("facility_not_found", "The facility does not exist on CC3", facilityId);
+            }
+            return { facilityId, borrower, maturity: toNumber(raw[8]) };
+        } catch (error) {
+            if (error instanceof TerminalWorkerError) throw error;
+            if (isLikelyRetryable(error)) throw new RetryableWorkerError("cc3_read_unavailable", cleanError(error), facilityId);
+            throw new TerminalWorkerError("facility_read_failed", cleanError(error), facilityId);
+        }
+    }
+
     async verifySource(
         facility: FacilitySnapshot,
         sourceTxHash: string,
@@ -267,6 +285,51 @@ export class LiveChainGateway implements ChainGateway {
         }
     }
 
+    async verifyBindingSource(facility: FacilityTermsSnapshot, sourceTxHash: string, expectedSourceBlock?: number): Promise<BindingSourceVerification> {
+        let tx: ethers.TransactionResponse | null;
+        let receipt: TransactionReceipt | null;
+        try {
+            [tx, receipt] = await Promise.all([
+                this.sepolia.getTransaction(sourceTxHash),
+                this.sepolia.getTransactionReceipt(sourceTxHash),
+            ]);
+        } catch (error) {
+            throw new RetryableWorkerError("sepolia_rpc_unavailable", cleanError(error), sourceTxHash);
+        }
+        if (!tx || !receipt) throw new RetryableWorkerError("source_transaction_pending", "The factory transaction or receipt is not available", sourceTxHash);
+        if (receipt.status !== 1) throw new TerminalWorkerError("source_transaction_failed", "The factory transaction reverted", sourceTxHash);
+        if (expectedSourceBlock !== undefined && receipt.blockNumber !== expectedSourceBlock) throw new TerminalWorkerError("source_block_mismatch", "The source receipt block differs from the registered block", sourceTxHash);
+        if (!sameAddress(tx.from, facility.borrower)) throw new TerminalWorkerError("factory_borrower_mismatch", "The factory transaction sender differs from the facility borrower", sourceTxHash);
+        if (!tx.to || !sameAddress(tx.to, ADDRESSES.sepoliaReserveLockerFactory)) throw new TerminalWorkerError("factory_source_mismatch", "The source transaction destination is not the approved ReserveLockerFactory", sourceTxHash);
+
+        const iface = new ethers.Interface(RESERVE_LOCKER_FACTORY_ABI);
+        let event: ethers.LogDescription | null = null;
+        for (const log of receipt.logs) {
+            if (!sameAddress(log.address, ADDRESSES.sepoliaReserveLockerFactory)) continue;
+            try {
+                const parsed = iface.parseLog({ topics: log.topics, data: log.data });
+                if (parsed?.name === "ReserveLockerCreated") { event = parsed; break; }
+            } catch {
+                // Ignore unrelated factory logs.
+            }
+        }
+        if (!event) throw new TerminalWorkerError("factory_event_missing", "The factory receipt has no ReserveLockerCreated event", sourceTxHash);
+        const facilityId = String(event.args[0]);
+        const locker = String(event.args[1]);
+        const borrower = String(event.args[2]);
+        const aavePool = String(event.args[3]);
+        const reserveAsset = String(event.args[4]);
+        const aToken = String(event.args[5]);
+        const unlockTime = toNumber(event.args[6]);
+        if (facilityId.toLowerCase() !== facility.facilityId.toLowerCase()) throw new TerminalWorkerError("factory_facility_mismatch", "The factory event belongs to another facility", sourceTxHash);
+        if (!sameAddress(borrower, facility.borrower)) throw new TerminalWorkerError("factory_event_borrower_mismatch", "The factory event borrower differs from the facility borrower", sourceTxHash);
+        if (!sameAddress(aavePool, ADDRESSES.sepoliaAavePool)) throw new TerminalWorkerError("factory_pool_mismatch", "The factory event Pool is not the approved Aave Pool", sourceTxHash);
+        if (!sameAddress(reserveAsset, ADDRESSES.sepoliaWeth)) throw new TerminalWorkerError("factory_reserve_mismatch", "The factory event reserve is not Sepolia WETH", sourceTxHash);
+        if (!sameAddress(aToken, ADDRESSES.sepoliaAWeth)) throw new TerminalWorkerError("factory_atoken_mismatch", "The factory event aToken is not the approved aWETH", sourceTxHash);
+        if (unlockTime < facility.maturity) throw new TerminalWorkerError("factory_unlock_mismatch", "The locker unlock time is before facility maturity", sourceTxHash);
+        return { sourceBlock: receipt.blockNumber, receiptStatus: receipt.status, locker, borrower, unlockTime };
+    }
+
     private proofBuilder(): any {
         return new sdk.proofProvider.service.ProofBuilder(
             this.config.sourceChainKey,
@@ -358,6 +421,24 @@ export class LiveChainGateway implements ChainGateway {
         }
     }
 
+    async readBinding(facilityId: string, proofId: string): Promise<BindingSnapshot> {
+        try {
+            const [binding, processed, raw] = await Promise.all([
+                this.verd.getFacilityLockerBinding(facilityId),
+                this.verd.processedProof(proofId),
+                this.verd.getFacility(facilityId),
+            ]);
+            return {
+                bindingProofId: processed ? String(binding[0]) : ZERO_BYTES32,
+                bindingSourceBlock: toNumber(binding[1]),
+                locker: String(raw[11]),
+            };
+        } catch (error) {
+            if (isLikelyRetryable(error)) throw new RetryableWorkerError("cc3_read_unavailable", cleanError(error), facilityId);
+            throw new TerminalWorkerError("binding_state_read_failed", cleanError(error), facilityId);
+        }
+    }
+
     async reserveSubmissionNonce(): Promise<number> {
         try {
             return await this.cc3.getTransactionCount(this.signer.address, "pending");
@@ -404,6 +485,25 @@ export class LiveChainGateway implements ChainGateway {
         } catch (error) {
             if (/revert|call exception|execution reverted|invalid argument/i.test(cleanError(error).toLowerCase())) {
                 throw new TerminalWorkerError("cc3_submission_rejected", cleanError(error), facilityId);
+            }
+            throw new RetryableWorkerError("cc3_submission_unavailable", cleanError(error), facilityId);
+        }
+    }
+
+    async sendBinding(facilityId: string, proof: SerializedProof, nonce: number): Promise<string> {
+        try {
+            const tx = await this.verd.bindReserveLocker(
+                facilityId,
+                proof.chainKey,
+                proof.headerNumber,
+                proofEnvelope(proof),
+                continuityEnvelope(proof),
+                { gasLimit: this.config.cc3GasLimit, nonce },
+            );
+            return String(tx.hash);
+        } catch (error) {
+            if (/revert|call exception|execution reverted|invalid argument/i.test(cleanError(error).toLowerCase())) {
+                throw new TerminalWorkerError("cc3_binding_rejected", cleanError(error), facilityId);
             }
             throw new RetryableWorkerError("cc3_submission_unavailable", cleanError(error), facilityId);
         }

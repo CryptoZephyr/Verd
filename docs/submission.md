@@ -1,41 +1,42 @@
-# Verd hackathon submission record
+# Verd public product and evidence record
 
 ## One-line summary
 
-Verd gives a working-capital borrower a preferred Creditcoin rate after an authenticated Ethereum reserve action is completed and held in a facility-specific ReserveLocker.
+Verd gives a working-capital borrower access to a preferred Creditcoin rate after an authenticated Ethereum reserve action is completed and held in a facility-specific ReserveLocker.
 
 ## Why the integration matters
 
-Verd runs the facility and APR state on Creditcoin CC3. The borrower creates a ReserveLocker on Ethereum Sepolia, supplies the approved WETH reserve to Aave V3 with that locker as `onBehalfOf`, and Attestcoin proves the source-chain event to CC3. Verd authenticates the factory-created locker configuration, binds it to exactly one facility, validates the Aave Supply receipt, and changes future interest accrual to the preferred APR.
+Verd runs facility and APR state on Creditcoin CC3. The borrower creates a ReserveLocker on Ethereum Sepolia, supplies the approved WETH reserve to Aave V3 with that locker as `onBehalfOf`, and Attestcoin proves the source-chain event to CC3. Verd authenticates the factory-created locker configuration, binds it to exactly one facility, validates the Aave Supply receipt, and changes future interest accrual to the preferred APR.
 
-## Verified demo path
+## Public verification path
 
-1. Read the corrected factory-bound architecture and live contract evidence in [PHASE3.md](PHASE3.md).
-2. Review the adversarial and recovery coverage in [PHASE4.md](PHASE4.md).
-3. Open the deployed backend at [verd-phase5-worker.onrender.com](https://verd-phase5-worker.onrender.com) and check `/health`.
-4. Review the restart, durable Postgres, proof, and idempotency evidence in [PHASE5.md](PHASE5.md).
+1. Read the [architecture](ARCHITECTURE.md) and [lifecycle](LIFECYCLE.md).
+2. Review the [recorded testnet evidence](VERIFIED_EVIDENCE.md).
+3. Check the worker [health endpoint](https://verd-phase5-worker.onrender.com/health) and root response before relying on public job routes.
+4. Review the [backend API](BACKEND_API.md) and [security model](SECURITY_MODEL.md).
+5. Open the public web interface and follow explorer links from the evidence surface.
 
 ## Technical evidence
 
-- Foundry contract suite, 45 passing tests.
-- Recovery suite, 6 passing tests.
-- TypeScript Phase 5 suite, 7 passing tests after the registration-conflict and runtime-configuration hardening in this release.
-- Render Free Web Service `verd-phase5-worker` in Frankfurt.
-- Durable Postgres table `verd_phase5_qualification_jobs`.
-- Live health response confirms the database and worker are ready, while `phase6Started=false`.
+- Foundry contract suite: 45 passing tests.
+- Recovery suite: 6 passing tests.
+- TypeScript worker suite: 9 passing tests.
+- Frontend production build and TypeScript checks pass.
+- Render web service and durable Postgres metadata are configured for testnet operation.
 
 ## Scope and limitations
 
-The current implementation is testnet-only. It does not claim Mainnet readiness, independent security audit coverage, production availability, repayment-gated Ethereum release, frontend completion, or full lifecycle evidence.
+The current implementation is testnet-only. It does not claim Mainnet readiness or independent security audit coverage. The reference facility proves creation, funding, locker binding, reserve supply, and preferred-rate activation. It does not represent a completed draw, repayment, reserve release, or full lifecycle record.
 
-The deployed idempotency check used the already-qualified Phase 3 facility, so it deliberately created no new CC3 qualification transaction. Local tests cover the actual send and receipt-recovery path. The external wake scheduler remains future work, and the Render Free database has a recorded expiry of 2026-09-27.
+The public worker deployment must be checked for its current route set before browser job registration is assumed. The Render Free database has a recorded provider expiry of 2026-09-27. The Ethereum lock remains time-based and does not receive an automatic repayment signal from Creditcoin.
 
 ## Repository map
 
 - `contracts/ethereum/`, ReserveLocker and ReserveLockerFactory.
 - `contracts/creditcoin/`, Verd facility and proof validation.
 - `src/`, resumable worker, Postgres store, chain gateway, and HTTP server.
+- `web/`, public product and documentation interface.
 - `test/`, Solidity, recovery, and worker tests.
-- `docs/`, phase evidence and implementation status.
+- `docs/`, public architecture, guides, references, security, and evidence.
 
 The repository is released under the [MIT License](../LICENSE).
