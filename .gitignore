@@ -5,8 +5,11 @@ node_modules/
 out/
 dist/
 dist-test/
+web-dist/
 cache/
 .phase0-state.json
 .phase3-state.json
 .phase3-factory-state.json
 *.log
+
+.vercel
