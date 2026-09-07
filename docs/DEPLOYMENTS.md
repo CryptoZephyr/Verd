@@ -29,6 +29,10 @@ Verd currently targets testnet networks only.
 
 The recorded testnet worker is available at the [testnet worker endpoint](https://verd-phase5-worker.onrender.com). It uses a Render web service and Postgres metadata. The service's public route set must be checked from its current root and health responses before integration claims are made.
 
+## Frontend
+
+The public testnet interface is deployed at [verd-credit.vercel.app](https://verd-credit.vercel.app). It is a Vite and React frontend with deep-linked product, documentation, privacy, and terms routes.
+
 ## Boundary
 
 These addresses are testnet evidence. They are not Mainnet configuration. The Render Free Postgres record has a provider expiry of 2026-09-27, so longer-lived operation needs an explicit renewal or paid-database decision.

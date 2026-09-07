@@ -4,7 +4,7 @@
 
 Verd is testnet fixed-term working-capital credit for crypto-native businesses. A lender sets a standard rate and a lower preferred rate. A borrower can qualify for the preferred rate by locking an agreed WETH reserve until maturity and having Verd accept the facility-specific reserve record.
 
-[Open the Verd frontend](https://verd-kohl.vercel.app) · [Read the public documentation](docs/DOCUMENTATION.md) · [View the source](https://github.com/CryptoZephyr/Verd)
+[Open the Verd frontend](https://verd-credit.vercel.app) · [Read the public documentation](docs/DOCUMENTATION.md) · [View the source](https://github.com/CryptoZephyr/Verd)
 
 > Testnet only. No Mainnet funds. No independent security audit. The frontend is an inspectable product surface, not a live lending offer.
 
@@ -33,12 +33,13 @@ The rate condition is the core product rule. The reserve qualifies the rate. It 
 
 ## Try the testnet interface
 
-The public frontend is deployed at [verd-kohl.vercel.app](https://verd-kohl.vercel.app). It lets a reader:
+The public frontend is deployed at [verd-credit.vercel.app](https://verd-credit.vercel.app). It lets a reader:
 
 - understand the facility before connecting a wallet,
 - compare the standard and preferred rate in a worked example,
 - follow separate lender and borrower paths,
 - inspect a recorded testnet facility and its evidence boundary,
+- see the lender or borrower context and the next valid action for the connected role,
 - see the next valid action without treating unavailable data as complete.
 
 Wallet actions are explicit. Connect only a testnet wallet when you intend to inspect or exercise a testnet flow.

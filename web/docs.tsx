@@ -389,10 +389,10 @@ function RenderBlock({ block }: { block: DocBlock }) {
   return <div className="docs-table-wrap"><table><thead><tr>{block.headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{block.rows.map(row => <tr key={row.join("|")}>{row.map(cell => <td key={cell}>{cell}</td>)}</tr>)}</tbody></table></div>;
 }
 
-function DocsSidebar({ current }: { current: string }) {
+function DocsSidebar({ current, open, onNavigate }: { current: string; open: boolean; onNavigate: () => void }) {
   const [query, setQuery] = useState("");
   const normalized = query.trim().toLowerCase();
-  return <aside className="docs-nav"><label><span aria-hidden="true">⌕</span><input aria-label="Search documentation" placeholder="Search documentation" value={query} onChange={event => setQuery(event.target.value)} /></label>{DOCS_SECTIONS.map(section => { const pages = section.pages.filter(item => !normalized || item.title.toLowerCase().includes(normalized) || item.slug.includes(normalized)); if (!pages.length) return null; return <div key={section.id}><strong className="mono">{section.label}</strong>{pages.map(item => { const path = `${section.id}/${item.slug}`; return <Link className={path === current ? "active" : ""} to={`/docs/${path}`} key={path}>{item.title}</Link>; })}</div>; })}</aside>;
+  return <aside className={`docs-nav${open ? " open" : ""}`}><label><span aria-hidden="true">⌕</span><input aria-label="Search documentation" placeholder="Search documentation" value={query} onChange={event => setQuery(event.target.value)} /></label>{DOCS_SECTIONS.map(section => { const pages = section.pages.filter(item => !normalized || item.title.toLowerCase().includes(normalized) || item.slug.includes(normalized)); if (!pages.length) return null; return <div key={section.id}><strong className="mono">{section.label}</strong>{pages.map(item => { const path = `${section.id}/${item.slug}`; return <Link onClick={onNavigate} className={path === current ? "active" : ""} to={`/docs/${path}`} key={path}>{item.title}</Link>; })}</div>; })}</aside>;
 }
 
 function DocsOnPage({ pageData }: { pageData: DocsPage }) {
@@ -406,11 +406,12 @@ function DocsSections({ pageData }: { pageData: DocsPage }) {
 
 export function DocsContent() {
   const params = useParams();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const current = params["*"] || "start/introduction";
   const pageData = ALL_DOCS[current] ?? ALL_DOCS["start/introduction"];
   const flatPages = DOCS_SECTIONS.flatMap(section => section.pages.map(item => ({ ...item, path: `${section.id}/${item.slug}` })));
   const currentIndex = flatPages.findIndex(item => item.path === `${pageData.section}/${pageData.slug}`);
   const previous = currentIndex > 0 ? flatPages[currentIndex - 1] : undefined;
   const next = currentIndex >= 0 && currentIndex < flatPages.length - 1 ? flatPages[currentIndex + 1] : undefined;
-  return <div className="docs-shell"><button className="docs-mobile" onClick={() => document.querySelector(".docs-nav")?.classList.toggle("open")}>Browse documentation <span>⌄</span></button><DocsSidebar current={`${pageData.section}/${pageData.slug}`} /><article className="doc-content"><div className="doc-breadcrumb mono">{pageData.eyebrow}</div><h1>{pageData.title}</h1><p className="doc-lead">{pageData.lead}</p><DocsSections pageData={pageData} /><div className="doc-next">{previous ? <Link to={`/docs/${previous.path}`}>← {previous.title}</Link> : <Link to="/facilities">Open facilities →</Link>}{next ? <Link to={`/docs/${next.path}`}>{next.title} →</Link> : <Link to="/facilities">Open facilities →</Link>}</div></article><DocsOnPage pageData={pageData} /></div>;
+  return <div className="docs-shell"><button className="docs-mobile" aria-expanded={mobileOpen} onClick={() => setMobileOpen(open => !open)}>Browse documentation <span aria-hidden="true">{mobileOpen ? "×" : "⌄"}</span></button><DocsSidebar current={`${pageData.section}/${pageData.slug}`} open={mobileOpen} onNavigate={() => setMobileOpen(false)} /><article className="doc-content"><div className="doc-breadcrumb mono">{pageData.eyebrow}</div><h1>{pageData.title}</h1><p className="doc-lead">{pageData.lead}</p><DocsSections pageData={pageData} /><div className="doc-next">{previous ? <Link to={`/docs/${previous.path}`}>← {previous.title}</Link> : <Link to="/facilities">Open facilities →</Link>}{next ? <Link to={`/docs/${next.path}`}>{next.title} →</Link> : <Link to="/facilities">Open facilities →</Link>}</div></article><DocsOnPage pageData={pageData} /></div>;
 }
