@@ -73,7 +73,7 @@ The [architecture guide](docs/ARCHITECTURE.md) explains these boundaries in deta
 
 ## Recorded testnet service
 
-The proof worker has a recorded endpoint at [verd-phase5-worker.onrender.com](https://verd-phase5-worker.onrender.com). Its [health route](https://verd-phase5-worker.onrender.com/health) must be checked before use because hosted availability can change. The endpoint was not verified as healthy during this release pass.
+The proof worker has a recorded [testnet service endpoint](https://verd-phase5-worker.onrender.com). Its [health route](https://verd-phase5-worker.onrender.com/health) must be checked before use because hosted availability can change. The endpoint was not verified as healthy during this release pass.
 
 The worker uses Render Postgres for resumable job metadata. Postgres stores progress, retries, source blocks, proof IDs, and submission intent. It does not replace Creditcoin or Ethereum as the source of financial truth.
 

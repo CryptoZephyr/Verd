@@ -4,7 +4,7 @@ The Verd worker exposes public job registration and status reads, plus secret-pr
 
 ## Base URL
 
-The testnet service URL is configured in the frontend as `VITE_VERD_WORKER_URL`. The current recorded service is `https://verd-phase5-worker.onrender.com`. Check `/health` and `/` before relying on a deployment's optional routes.
+The testnet service URL is configured in the frontend as `VITE_VERD_WORKER_URL`. The current recorded service is the [testnet worker endpoint](https://verd-phase5-worker.onrender.com). Check `/health` and `/` before relying on a deployment's optional routes.
 
 ## Public routes
 

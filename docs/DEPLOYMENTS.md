@@ -27,7 +27,7 @@ Verd currently targets testnet networks only.
 
 ## Worker service
 
-The recorded testnet worker URL is `https://verd-phase5-worker.onrender.com`. It uses a Render web service and Postgres metadata. The service's public route set must be checked from its current root and health responses before integration claims are made.
+The recorded testnet worker is available at the [testnet worker endpoint](https://verd-phase5-worker.onrender.com). It uses a Render web service and Postgres metadata. The service's public route set must be checked from its current root and health responses before integration claims are made.
 
 ## Boundary
 
