@@ -38,7 +38,8 @@ The public frontend is deployed at [verd-credit.vercel.app](https://verd-credit.
 - understand the facility before connecting a wallet,
 - compare the standard and preferred rate in a worked example,
 - follow separate lender and borrower paths,
-- inspect the current recorded testnet facility and its full lifecycle evidence,
+- inspect the active public testnet facility and its current chain state,
+- inspect the separate historical facility with complete lifecycle evidence,
 - see the lender or borrower context and the next valid action for the connected role,
 - see the next valid action without treating unavailable data as complete.
 
@@ -55,7 +56,7 @@ Start with the [documentation map](docs/DOCUMENTATION.md). It is organized by re
 - [Use the backend API](docs/BACKEND_API.md), for public job registration, status reads, and protected worker routes.
 - [Check deployments](docs/DEPLOYMENTS.md), for testnet networks and contract addresses.
 - [Read the security model](docs/SECURITY_MODEL.md), for trust boundaries, failure behavior, replay protection, and secret handling.
-- [Inspect recorded evidence](docs/VERIFIED_EVIDENCE.md), for the current fresh facility and its explicit testnet limits.
+- [Inspect recorded evidence](docs/VERIFIED_EVIDENCE.md), for the active reference, the historical complete record, and their explicit testnet limits.
 - [Review implementation status](docs/implementation-status.md), for the current product boundary and remaining work.
 - [Read the security policy](SECURITY.md), for reporting guidance and secret handling.
 
@@ -74,13 +75,13 @@ The [architecture guide](docs/ARCHITECTURE.md) explains these boundaries in deta
 
 ## Recorded testnet service
 
-The proof worker has a recorded [testnet service endpoint](https://verd-phase5-worker.onrender.com). Its [health route](https://verd-phase5-worker.onrender.com/health) must be checked before use because hosted availability can change. The current deployment is commit `b85042a` and includes the release-proof worker path.
+The proof worker has a recorded [testnet service endpoint](https://verd-phase5-worker.onrender.com). Its [health route](https://verd-phase5-worker.onrender.com/health) must be checked before use because hosted availability can change. The service tracks `master`, and its release-proof worker path is preserved in the historical evidence record.
 
 The worker uses Render Postgres for resumable job metadata. Postgres stores progress, retries, source blocks, proof IDs, and submission intent. It does not replace Creditcoin or Ethereum as the source of financial truth.
 
 ## Current boundary
 
-Verd is a testnet prototype. The current evidence demonstrates a fresh facility from creation through draw, maturity, repayment, reserve release, and completion. It does not establish:
+Verd is a testnet prototype. The active public reference is funded and awaiting borrower action. A separate historical facility demonstrates the complete testnet lifecycle from creation through draw, maturity, repayment, reserve release, and completion. These records do not establish:
 
 - Mainnet readiness or production safety,
 - an independent security audit,
@@ -144,7 +145,7 @@ See the [backend API guide](docs/BACKEND_API.md) for request shapes and authenti
 
 ## Verification
 
-The local suites cover contract behavior, receipt handling, proof progression, submission intent, nonce recovery, restart recovery, and duplicate prevention. Passing local tests does not prove Mainnet readiness, hosted service availability, or production safety. The current complete lifecycle evidence is recorded in [VERIFIED_EVIDENCE.md](docs/VERIFIED_EVIDENCE.md).
+The local suites cover contract behavior, receipt handling, proof progression, submission intent, nonce recovery, restart recovery, and duplicate prevention. Passing local tests does not prove Mainnet readiness, hosted service availability, or production safety. The active and historical lifecycle boundaries are recorded in [VERIFIED_EVIDENCE.md](docs/VERIFIED_EVIDENCE.md).
 
 The Render Free Postgres record has a provider expiry of 2026-09-27. Longer-lived operation needs an explicit renewal or paid-database decision.
 

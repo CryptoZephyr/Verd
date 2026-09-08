@@ -1,6 +1,6 @@
 # Phase 5, resumable proof worker and Render backend
 
-Status: verified on Render Free and exercised through binding, qualification, and reserve-release jobs for the current fresh facility.
+Status: historical worker verification on Render Free, exercised through binding, qualification, and reserve-release jobs for the completed facility on the previous Verd contract. The active reference starts with no inherited job or proof evidence.
 
 ## Scope
 
@@ -24,7 +24,7 @@ The safe public template is `.env.example`. Render configuration is in `render.y
 
 ## Verification record
 
-The deployed service is `verd-phase5-worker`, Render service ID `srv-daclbqbm8hqs73ba5vr0`, at [https://verd-phase5-worker.onrender.com](https://verd-phase5-worker.onrender.com). The current functional worker deployment is commit `b85042a`, deployment ID `dep-dag45vq181qs73ag2ceg`, on the `master` branch in Frankfurt using the Node runtime and Free plan. It uses the signed worker contract gateway for live CC3 writes, including the authenticated reserve-release record.
+The deployed service is `verd-phase5-worker`, Render service ID `srv-daclbqbm8hqs73ba5vr0`, at [https://verd-phase5-worker.onrender.com](https://verd-phase5-worker.onrender.com). The recorded historical worker deployment was commit `b85042a`, deployment ID `dep-dag45vq181qs73ag2ceg`, on the `master` branch in Frankfurt using the Node runtime and Free plan. The service continues to track `master`, so inspect its current health and configured deployment before relying on a live job route.
 
 The service uses the existing workspace Render Postgres instance `vocap-sepolia-postgres`, database ID `dpg-da8dqegn74is73dlelsg-a`, in Frankfurt. Verd owns the isolated `verd_phase5_qualification_jobs` table and its idempotency index. The database is currently a Render Free database with a provider expiry of 2026-09-27, so longer-lived operation requires a later database renewal or paid durable database decision.
 
@@ -34,7 +34,7 @@ Restart recovery was verified with job `job_7c8b5ac0c7a96ee93607aa1e2d8665b4fcda
 
 The proof-ready job then completed idempotently against the already-qualified Phase 3 facility. The live status is `completed`, `terminal=true`, `sourceBlock=11622931`, `proofId=0xecf7b48177ca61de7449400db6318d799c005b3322e4a858bc4e016efbd395e6`, `proofSdkValid=true`, and `idempotencyOutcome=proof_already_processed_on_chain`. No CC3 submission nonce or transaction hash was created. Re-registering the same facility and source returned `created=false` with the same job ID. A repeated tick returned `idle` with the completed state. An unauthenticated tick returned HTTP 401.
 
-The worker therefore has verified cold-start, durable restart recovery, source receipt and event validation, bounded Attestcoin polling, proof generation and SDK verification, authoritative CC3 readback, duplicate-submission protection, and the release operation. The fresh release job completed with proof ID `0x98c198283a5201c70be777a89f849ab9fa2ef1c2a33ef658d1e004915c394408` and CC3 transaction `0x99dd91edc8b6b171f8f805a3b7fe450a68dbcbcd0468ae2b88887ba3824f1435`. The external wake-source checkbox remains future work because this gate used authenticated manual ticks.
+The worker therefore has historical verification for cold-start, durable restart recovery, source receipt and event validation, bounded Attestcoin polling, proof generation and SDK verification, authoritative CC3 readback, duplicate-submission protection, and the release operation. The historical release job completed with proof ID `0x98c198283a5201c70be777a89f849ab9fa2ef1c2a33ef658d1e004915c394408` and CC3 transaction `0x99dd91edc8b6b171f8f805a3b7fe450a68dbcbcd0468ae2b88887ba3824f1435`. The current server source includes its own interval-based tick. End-to-end autonomous progression for the active reference remains unclaimed until it has a real source transaction and chain readback.
 
 ## Repository release audit
 

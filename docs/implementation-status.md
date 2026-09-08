@@ -5,13 +5,14 @@ Checked on 2026-09-08. This page describes the current product boundary in reade
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Creditcoin facility core | verified in local contract tests | [Architecture](ARCHITECTURE.md), [Lifecycle](LIFECYCLE.md) |
-| Sepolia ReserveLocker and factory | verified in local contract tests and recorded testnet evidence | [Deployments](DEPLOYMENTS.md), [Recorded evidence](VERIFIED_EVIDENCE.md) |
-| Authenticated cross-chain proof path | verified on Sepolia and CC3 for the current fresh facility | [Recorded evidence](VERIFIED_EVIDENCE.md) |
+| Sepolia ReserveLocker and factory | verified in local contract tests and historical testnet evidence | [Deployments](DEPLOYMENTS.md), [Recorded evidence](VERIFIED_EVIDENCE.md) |
+| Authenticated cross-chain proof path | verified on Sepolia and CC3 for the historical completed facility | [Recorded evidence](VERIFIED_EVIDENCE.md) |
 | Durable proof worker | verified in local worker and recovery tests | [Backend API](BACKEND_API.md), [Security model](SECURITY_MODEL.md) |
 | Public web interface | implemented with responsive product, facility, creation, and documentation routes | [Public documentation map](DOCUMENTATION.md) |
 | Contract and wallet actions | wired behind explicit wallet and network controls | [Quickstart](QUICKSTART.md), [Lifecycle](LIFECYCLE.md) |
-| Full draw, maturity, repayment, and release record | verified on testnet for the current fresh facility | [Recorded evidence](VERIFIED_EVIDENCE.md) |
-| Browser-independent worker wake | not claimed without a configured and verified scheduler | [Architecture](ARCHITECTURE.md) |
+| Active public reference | funded and awaiting borrower action on the repayment-safe contract | [Deployments](DEPLOYMENTS.md), [Recorded evidence](VERIFIED_EVIDENCE.md) |
+| Full draw, maturity, repayment, and release record | verified on testnet for the historical facility, not inherited by the active reference | [Recorded evidence](VERIFIED_EVIDENCE.md) |
+| Browser-independent worker wake | implemented as a server-side interval and covered by worker tests. End-to-end autonomous progression on the active reference has not been claimed. | [Architecture](ARCHITECTURE.md), [Backend API](BACKEND_API.md) |
 
 ## What is authoritative
 

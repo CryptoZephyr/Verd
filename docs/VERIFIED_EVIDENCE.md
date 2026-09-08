@@ -1,8 +1,22 @@
-# Recorded testnet evidence
+# Testnet evidence records
 
-This page records the external records currently used by the public interface. It is a testnet evidence record, not a production guarantee.
+This page separates the active public reference from the completed historical lifecycle record. Both are testnet evidence, not a production guarantee.
 
-## Fresh complete facility record, verified 2026-09-08
+## Active public reference, verified 2026-09-08
+
+- Verd: `0x73E1d4c5496eC0b39Bdb8765376e65e3576429cf`
+- Facility: `0xd5b7da6a049be8a09cc7183035dac4701385e35a497cdde1dc9f47d889a92a09`
+- Principal: `0.01 tCTC`
+- Standard APR: `10.00%`
+- Preferred APR: `5.00%`
+- Required reserve: `0.0005 WETH`
+- Created: CC3 block `5454283`, transaction `0x5edcf4960736f1d14ff095875bdef5fe33f7d26f05a8b9969827e36f0f549a01`
+- Funded: CC3 block `5454284`, transaction `0xa2415051199fde7edb78678f15d29b5faa35c870860ee12d4f0f553e2161a6a6`
+- Current verified state: funded, undrawn, preferred rate inactive, state `Awaiting borrower action` (2)
+
+This facility has no locker, reserve supply, proof, draw, repayment, or reserve-release record. Its evidence drawer correctly shows those records as pending or unavailable. Do not carry completion evidence from any other contract or facility into this record.
+
+## Historical complete facility record, verified 2026-09-08
 
 - Verd: `0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328`
 - Facility: `0xb1530a86a4ab63fe19f2777fb5f979ec7aaf0a3bd9ac108507783714fc50d136`
@@ -16,7 +30,7 @@ This page records the external records currently used by the public interface. I
 
 | Record | Hash or block | Meaning |
 | --- | --- | --- |
-| Facility creation | `0x4de1bed1aacc73cbdb3d54abd47ef7d8497076446957e33473759559a2d90f40` | Fresh facility terms on CC3 |
+| Facility creation | `0x4de1bed1aacc73cbdb3d54abd47ef7d8497076446957e33473759559a2d90f40` | Historical facility terms on CC3 |
 | Locker creation | Sepolia block `11662381`, transaction `0x8d459e60f51824e4cb2254fbcb48dc21fefe188e8848365e7c5617625fa6c6e9` | Factory event and immutable locker configuration |
 | Locker binding | `0xf975e011ac9d8a0d68b1f1515b4c27b33e1bd26172713a8f1e4ea81b02b2bab3` | CC3 binding of the authenticated locker |
 | Facility funding | `0x3dadcf71ff53c1c16682c94f648628fe90a72ac745d371131c1fd54ce2658886` | Exact principal funded on CC3 |
@@ -31,15 +45,15 @@ The binding proof is `0xab452bb86b52de3409a886d958d5c57620cbe6d3f9cdc0e28163f641
 
 Independent final readback confirmed `funded=true`, `drawn=true`, `preferredRateActive=true`, `repaid=true`, `reserveReleased=true`, facility state `Complete` (13), and locker aToken balance `0`.
 
-## Worker evidence
+## Historical worker evidence
 
 Release job `job_4109aedc59d7f18ae4e3db00c8bf28d1fca156a70da034a5d4fcecf853bec909` completed after retryable Attestcoin waits. Final status was `completed`, `terminal=true`, `sourceBlock=11662700`, proof ID `0x98c198283a5201c70be777a89f849ab9fa2ef1c2a33ef658d1e004915c394408`, CC3 submission transaction `0x99dd91edc8b6b171f8f805a3b7fe450a68dbcbcd0468ae2b88887ba3824f1435`, and `retryCount=28`.
 
 ## Boundary
 
-The complete sequence is verified on Creditcoin Testnet CC3 and Ethereum Sepolia only. ReserveLocker release remains borrower-authorized and time-based. Verd records an authenticated release proof after repayment and release, but the locker does not receive a protocol-enforced repayment signal. This record does not claim Mainnet readiness, production safety, or independent security audit coverage.
+The completed sequence above is verified on the historical Creditcoin Testnet CC3 contract and Ethereum Sepolia only. ReserveLocker release remains borrower-authorized and time-based. Verd records an authenticated release proof after repayment and release, but the locker does not receive a protocol-enforced repayment signal. Neither record claims Mainnet readiness, production safety, or independent security audit coverage.
 
-Inspect the [Creditcoin explorer](https://creditcoin-testnet.blockscout.com/address/0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328) and [Sepolia explorer](https://sepolia.etherscan.io/) before treating a record as current.
+Inspect the [active Creditcoin contract](https://creditcoin-testnet.blockscout.com/address/0x73E1d4c5496eC0b39Bdb8765376e65e3576429cf), the [historical Creditcoin contract](https://creditcoin-testnet.blockscout.com/address/0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328), and [Sepolia explorer](https://sepolia.etherscan.io/) before relying on any record.
 
 ## Historical reference record
 

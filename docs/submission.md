@@ -18,15 +18,15 @@ Verd runs facility and APR state on Creditcoin CC3. The borrower creates a Reser
 
 ## Technical evidence
 
-- Foundry contract suite: 45 passing tests.
+- Foundry contract suite: 47 passing tests.
 - Recovery suite: 6 passing tests.
-- TypeScript worker suite: 9 passing tests.
+- TypeScript worker suite: 10 passing tests.
 - Frontend production build and TypeScript checks pass.
 - Render web service and durable Postgres metadata are configured for testnet operation.
 
 ## Scope and limitations
 
-The current implementation is testnet-only. It does not claim Mainnet readiness or independent security audit coverage. The fresh recorded facility proves creation, funding, locker binding, reserve supply, preferred-rate activation, draw, post-maturity repayment, reserve release, and the final Complete state.
+The current implementation is testnet-only. It does not claim Mainnet readiness or independent security audit coverage. The active public reference is funded and awaiting borrower action. The complete lifecycle record, including locker binding, reserve supply, preferred-rate activation, draw, post-maturity repayment, reserve release, and the final Complete state, belongs to the historical Verd contract documented in [recorded evidence](VERIFIED_EVIDENCE.md).
 
 The public worker deployment must be checked for its current route set before browser job registration is assumed. The Render Free database has a recorded provider expiry of 2026-09-27. The Ethereum lock remains time-based and does not receive an automatic repayment signal from Creditcoin. Verd records the release proof on CC3 after the borrower-authorized source release.
 
