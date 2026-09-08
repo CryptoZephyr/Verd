@@ -33,6 +33,7 @@ function publicJob(job: JobRecord): Record<string, unknown> {
         sourceBlock: state.sourceBlock ?? null,
         sourceReceiptStatus: state.sourceReceiptStatus ?? null,
         sourceEvent: state.sourceEvent ?? null,
+        releaseEvent: state.releaseEvent ?? null,
         lockerATokenBalance: state.lockerATokenBalance ?? null,
         proofId: state.proofId ?? null,
         proofSdkValid: state.proofSdkValid ?? null,
@@ -98,7 +99,7 @@ function optionalHash(value: unknown, name: string): string | undefined {
 
 function jobInput(payload: Record<string, unknown>): JobInput {
     const operation = payload.operation === undefined ? "qualification" : payload.operation;
-    if (operation !== "qualification" && operation !== "binding") throw new BadRequestError("operation must be qualification or binding");
+    if (operation !== "qualification" && operation !== "binding" && operation !== "release") throw new BadRequestError("operation must be qualification, binding, or release");
     const sourceBlock = payload.sourceBlock === undefined || payload.sourceBlock === null || payload.sourceBlock === ""
         ? undefined
         : Number(payload.sourceBlock);

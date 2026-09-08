@@ -99,6 +99,15 @@ contract VerdProofTest {
         uint256 accruedInterest
     );
 
+    event ReserveReleaseRecorded(
+        bytes32 indexed facilityId,
+        bytes32 indexed proofId,
+        uint64 indexed sourceBlock,
+        address borrower,
+        address locker,
+        uint256 amount
+    );
+
     address private constant LENDER = address(0x1111);
     address private constant BORROWER = address(0x2222);
     address private constant AAVE_POOL = address(0x3333);
@@ -107,6 +116,7 @@ contract VerdProofTest {
     address private constant FACTORY = address(0x6666);
     bytes32 private constant FACILITY_ID = keccak256("verd-proof-facility");
     uint64 private constant SOURCE_BLOCK = 12_345;
+    uint64 private constant RELEASE_SOURCE_BLOCK = 12_346;
     uint64 private constant FACTORY_SOURCE_BLOCK = 12_344;
     uint256 private constant PRINCIPAL = 10 ether;
     uint256 private constant REQUIRED_RESERVE = 1 ether;
@@ -204,6 +214,57 @@ contract VerdProofTest {
 
         vm.expectRevert(abi.encodeWithSelector(Verd.QualificationAlreadyActive.selector, FACILITY_ID));
         verd.qualifyFacility(FACILITY_ID, 1, SOURCE_BLOCK, inclusion, continuity);
+    }
+
+    function test_validReleaseProofRecordsCompletion() public {
+        createAndFund();
+        verifier.setEncodedTransaction(validEncodedTransaction());
+        (BlockProverTypes.InclusionProof memory qualificationInclusion, BlockProverTypes.ContinuityProof memory qualificationContinuity) = validProof();
+        verd.qualifyFacility(FACILITY_ID, 1, SOURCE_BLOCK, qualificationInclusion, qualificationContinuity);
+
+        vm.deal(BORROWER, 100 ether);
+        vm.prank(BORROWER);
+        verd.drawFacility(FACILITY_ID);
+
+        vm.warp(maturity);
+        verd.accrueInterest(FACILITY_ID);
+        (uint256 outstanding, uint256 accrued,) = verd.getFacilityFinancials(FACILITY_ID);
+        uint256 due = outstanding + accrued;
+        vm.deal(BORROWER, due);
+        vm.prank(BORROWER);
+        verd.repayFacility{value: due}(FACILITY_ID);
+
+        verifier.setEncodedTransaction(validReleaseEncodedTransaction());
+        (BlockProverTypes.InclusionProof memory releaseInclusion, BlockProverTypes.ContinuityProof memory releaseContinuity) = validReleaseProof();
+        bytes32 expectedProofId = verd.proofId(1, RELEASE_SOURCE_BLOCK, releaseInclusion, releaseContinuity);
+
+        vm.expectEmit(true, true, true, true);
+        emit ReserveReleaseRecorded(
+            FACILITY_ID,
+            expectedProofId,
+            RELEASE_SOURCE_BLOCK,
+            BORROWER,
+            address(locker),
+            SUPPLIED_AMOUNT
+        );
+        bytes32 actualProofId = verd.recordReserveRelease(
+            FACILITY_ID,
+            1,
+            RELEASE_SOURCE_BLOCK,
+            releaseInclusion,
+            releaseContinuity
+        );
+
+        require(actualProofId == expectedProofId, "release proof id");
+        require(verd.processedProof(expectedProofId), "release proof not processed");
+        (,,, bool preferredRateActive, bool repaid, bool reserveReleased,, uint256 repaidAmount) = verd.getFacilityStatus(FACILITY_ID);
+        require(preferredRateActive, "preferred rate lost");
+        require(repaid && reserveReleased, "completion state incomplete");
+        require(repaidAmount == due, "repayment amount");
+        require(verd.facilityState(FACILITY_ID) == Verd.FacilityState.Complete, "facility not complete");
+        (bytes32 releaseProofId, uint64 releaseSourceBlock, uint256 releaseAmount) = verd.getFacilityReleaseEvidence(FACILITY_ID);
+        require(releaseProofId == expectedProofId, "stored release proof");
+        require(releaseSourceBlock == RELEASE_SOURCE_BLOCK && releaseAmount == SUPPLIED_AMOUNT, "release evidence");
     }
 
     function test_sameProofCannotAffectMultipleFacilities() public {
@@ -536,6 +597,46 @@ contract VerdProofTest {
         encoded = abi.encode(uint8(0), chunks);
     }
 
+    function validReleaseEncodedTransaction() private view returns (bytes memory) {
+        return encodedReleaseTransaction(BORROWER, address(locker), BORROWER, ATOKEN, SUPPLIED_AMOUNT, true);
+    }
+
+    function encodedReleaseTransaction(
+        address txFrom,
+        address txTo,
+        address eventBorrower,
+        address eventAToken,
+        uint256 amount,
+        bool includeRelease
+    ) private pure returns (bytes memory encoded) {
+        EvmV1Decoder.LogEntryTuple[] memory logs = new EvmV1Decoder.LogEntryTuple[](includeRelease ? 1 : 0);
+        if (includeRelease) {
+            bytes32[] memory topics = new bytes32[](3);
+            topics[0] = keccak256("ReserveReleased(address,address,uint256)");
+            topics[1] = bytes32(uint256(uint160(eventBorrower)));
+            topics[2] = bytes32(uint256(uint160(eventAToken)));
+            logs[0] = EvmV1Decoder.LogEntryTuple({
+                address_: txTo,
+                topics: topics,
+                data: abi.encode(amount)
+            });
+        }
+
+        bytes[] memory chunks = new bytes[](3);
+        chunks[0] = abi.encode(
+            uint64(1),
+            uint64(300_000),
+            txFrom,
+            false,
+            txTo,
+            uint256(0),
+            bytes("")
+        );
+        chunks[1] = abi.encode(uint128(1), uint256(0), bytes32(0), bytes32(0));
+        chunks[2] = abi.encode(uint8(1), uint64(100_000), logs, bytes(""));
+        encoded = abi.encode(uint8(0), chunks);
+    }
+
     function validProof()
         private
         pure
@@ -572,6 +673,26 @@ contract VerdProofTest {
         });
         continuity = BlockProverTypes.ContinuityProof({
             lowerEndpointDigest: bytes32(uint256(4)),
+            roots: new bytes32[](0)
+        });
+    }
+
+    function validReleaseProof()
+        private
+        pure
+        returns (
+            BlockProverTypes.InclusionProof memory inclusion,
+            BlockProverTypes.ContinuityProof memory continuity
+        )
+    {
+        BlockProverTypes.MerkleProofEntry[] memory siblings = new BlockProverTypes.MerkleProofEntry[](0);
+        inclusion = BlockProverTypes.InclusionProof({
+            kind: BlockProverTypes.ProofKind.BinaryMerkle,
+            root: bytes32(uint256(7)),
+            data: abi.encode(bytes("mock release tx"), siblings)
+        });
+        continuity = BlockProverTypes.ContinuityProof({
+            lowerEndpointDigest: bytes32(uint256(8)),
             roots: new bytes32[](0)
         });
     }

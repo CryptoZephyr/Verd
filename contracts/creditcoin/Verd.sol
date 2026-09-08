@@ -30,6 +30,7 @@ contract Verd {
     error NotDrawn();
     error NotMatured();
     error AlreadyRepaid();
+    error NotRepaid();
     error RepaymentAmountMismatch();
     error TransferFailed();
     error ReentrantCall();
@@ -50,6 +51,12 @@ contract Verd {
     error FactorySourceMismatch();
     error FactoryFacilityMismatch();
     error FactoryBorrowerMismatch();
+    error ReleaseAlreadyRecorded(bytes32 facilityId);
+    error ReleaseEventMissing();
+    error ReleaseSourceMismatch();
+    error ReleaseBorrowerMismatch();
+    error ReleaseTokenMismatch();
+    error InvalidReleaseAmount();
 
     enum FacilityState {
         Draft,
@@ -97,6 +104,8 @@ contract Verd {
         bytes32 lockerBindingProofId;
         uint64 lockerBindingSourceBlock;
         uint256 reserveReleaseAmount;
+        bytes32 reserveReleaseProofId;
+        uint64 reserveReleaseSourceBlock;
     }
 
     address public immutable proofVerifier;
@@ -110,6 +119,8 @@ contract Verd {
         keccak256("Supply(address,address,address,uint256,uint16)");
     bytes32 public constant RESERVE_LOCKER_CREATED_TOPIC =
         keccak256("ReserveLockerCreated(bytes32,address,address,address,address,address,uint64)");
+    bytes32 public constant RESERVE_RELEASED_TOPIC =
+        keccak256("ReserveReleased(address,address,uint256)");
 
     mapping(bytes32 => Facility) private _facilities;
     mapping(address => bytes32) public lockerFacility;
@@ -166,6 +177,15 @@ contract Verd {
         uint256 principalAmount,
         uint256 interestAmount,
         uint256 totalAmount
+    );
+
+    event ReserveReleaseRecorded(
+        bytes32 indexed facilityId,
+        bytes32 indexed proofId,
+        uint64 indexed sourceBlock,
+        address borrower,
+        address locker,
+        uint256 amount
     );
 
     event PreferredRateConditionActivated(
@@ -409,6 +429,79 @@ contract Verd {
         );
     }
 
+    /// @notice Authenticates the borrower's post-maturity ReserveLocker release on Ethereum.
+    /// @dev The release remains borrower-authorized and time-based on Ethereum. This record
+    ///      lets Creditcoin expose an inspectable, proof-backed completion state after both
+    ///      repayment and release have happened.
+    function recordReserveRelease(
+        bytes32 facilityId,
+        uint64 sourceChainKey,
+        uint64 sourceBlock,
+        BlockProverTypes.InclusionProof calldata inclusionProof,
+        BlockProverTypes.ContinuityProof calldata continuityProof
+    ) external nonReentrant returns (bytes32 id) {
+        Facility storage facility = _facility(facilityId);
+        if (sourceChainKey != ETHEREUM_SEPOLIA_CHAIN_KEY) revert UnsupportedSourceChain();
+        if (!facility.repaid) revert NotRepaid();
+        if (facility.reserveReleased) revert ReleaseAlreadyRecorded(facilityId);
+        if (facility.reserveLocker == address(0)) revert LockerNotBound();
+        if (block.timestamp < facility.maturity) revert NotMatured();
+
+        id = proofId(sourceChainKey, sourceBlock, inclusionProof, continuityProof);
+        if (processedProof[id]) revert ProofAlreadyProcessed(id);
+
+        bytes memory encodedTransaction = IUSCProofVerifier(proofVerifier).verifyProofs(
+            bytes32(uint256(sourceChainKey)),
+            sourceBlock,
+            inclusionProof,
+            continuityProof
+        );
+
+        EvmV1Decoder.CommonTxFields memory transaction =
+            EvmV1Decoder.decodeCommonTxFields(encodedTransaction);
+        if (transaction.from != facility.borrower) revert ReleaseBorrowerMismatch();
+        if (transaction.to != facility.reserveLocker) revert ReleaseSourceMismatch();
+
+        EvmV1Decoder.ReceiptFields memory receipt = EvmV1Decoder.decodeReceiptFields(encodedTransaction);
+        if (receipt.receiptStatus != 1) revert SourceTransactionFailed();
+
+        bool matched;
+        uint256 releasedAmount;
+        for (uint256 i; i < receipt.receiptLogs.length; ++i) {
+            EvmV1Decoder.LogEntry memory logEntry = receipt.receiptLogs[i];
+            if (
+                logEntry.address_ != facility.reserveLocker ||
+                logEntry.topics.length != 3 ||
+                logEntry.topics[0] != RESERVE_RELEASED_TOPIC
+            ) continue;
+
+            address eventBorrower = _topicAddress(logEntry.topics[1]);
+            address eventAToken = _topicAddress(logEntry.topics[2]);
+            releasedAmount = abi.decode(logEntry.data, (uint256));
+            if (eventBorrower != facility.borrower) revert ReleaseBorrowerMismatch();
+            if (eventAToken != approvedAToken) revert ReleaseTokenMismatch();
+            if (releasedAmount == 0) revert InvalidReleaseAmount();
+            matched = true;
+            break;
+        }
+        if (!matched) revert ReleaseEventMissing();
+
+        processedProof[id] = true;
+        facility.reserveReleased = true;
+        facility.reserveReleaseAmount = releasedAmount;
+        facility.reserveReleaseProofId = id;
+        facility.reserveReleaseSourceBlock = sourceBlock;
+
+        emit ReserveReleaseRecorded(
+            facilityId,
+            id,
+            sourceBlock,
+            facility.borrower,
+            facility.reserveLocker,
+            releasedAmount
+        );
+    }
+
     function proofId(
         uint64 sourceChainKey,
         uint64 sourceBlock,
@@ -618,6 +711,23 @@ contract Verd {
             );
     }
 
+    function getFacilityReleaseEvidence(bytes32 facilityId)
+        external
+        view
+        returns (
+            bytes32 releaseProofId,
+            uint64 releaseSourceBlock,
+            uint256 releaseAmount
+        )
+    {
+        Facility storage facility = _facilities[facilityId];
+        return (
+            facility.reserveReleaseProofId,
+            facility.reserveReleaseSourceBlock,
+            facility.reserveReleaseAmount
+        );
+    }
+
     function getFacilityLockerBinding(bytes32 facilityId)
         external
         view
@@ -652,6 +762,9 @@ contract Verd {
             return FacilityState.DrawnAtStandardRate;
         }
         if (facility.reserveReleased) return FacilityState.Complete;
+        if (facility.reserveLockerUnlockTime != 0 && block.timestamp >= facility.reserveLockerUnlockTime) {
+            return FacilityState.ReserveReleasable;
+        }
         return FacilityState.Repaid;
     }
 

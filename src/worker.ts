@@ -13,6 +13,7 @@ import type {
     JobRecord,
     JobState,
     JobStore,
+    ReleaseSnapshot,
     TickResult,
 } from "./types.js";
 
@@ -32,6 +33,13 @@ function matchingBinding(state: JobState, binding: BindingSnapshot): boolean {
         && binding.bindingProofId.toLowerCase() === state.proofId!.toLowerCase()
         && binding.bindingSourceBlock === state.sourceBlock
         && !/^0x0{40}$/i.test(binding.locker);
+}
+
+function matchingRelease(state: JobState, release: ReleaseSnapshot): boolean {
+    return Boolean(state.proofId)
+        && release.releaseProofId.toLowerCase() === state.proofId!.toLowerCase()
+        && release.releaseSourceBlock === state.sourceBlock
+        && BigInt(release.releaseAmount) > 0n;
 }
 
 function sameProof(left: string, right: string): boolean {
@@ -72,7 +80,7 @@ export class ProofWorker {
             ? await this.chain.getFacilityTerms(input.facilityId)
             : await this.chain.getFacility(input.facilityId);
         if (!sameAddress(facility.borrower, recovered)) {
-            throw new TerminalWorkerError("job_borrower_mismatch", "Only the facility borrower can register its qualification job");
+            throw new TerminalWorkerError("job_borrower_mismatch", "Only the facility borrower can register this job");
         }
         return this.store.createJob(input);
     }
@@ -166,6 +174,33 @@ export class ProofWorker {
                 }
                 if (!/^0x0{64}$/i.test(binding.bindingProofId)) {
                     throw new TerminalWorkerError("facility_already_bound_with_different_proof", "The facility has binding evidence that does not match this job", job.facilityId);
+                }
+            }
+            await this.store.saveJob(job, leaseToken, true);
+            return;
+        }
+        if (job.state.operation === "release") {
+            const facility = await this.facilityFor(job);
+            const source = await this.chain.verifyReleaseSource(facility, job.sourceTxHash, job.state.sourceBlock);
+            job.state = {
+                ...job.state,
+                status: job.state.cc3SubmissionTxHash ? "cc3_submission_pending" : "attestation_pending",
+                nextAction: job.state.cc3SubmissionTxHash ? "check_cc3_submission" : "wait_attestcoin",
+                sourceBlock: source.sourceBlock,
+                sourceReceiptStatus: source.receiptStatus,
+                releaseEvent: { borrower: source.borrower, aToken: source.aToken, amount: source.amount },
+                lockerATokenBalance: source.lockerATokenBalance,
+                lastErrorCategory: undefined,
+                lastErrorMessage: undefined,
+            };
+            if (job.state.proofId) {
+                const release = await this.chain.readRelease(job.facilityId, job.state.proofId);
+                if (matchingRelease(job.state, release)) {
+                    await this.completeStep(job, leaseToken, "release_already_processed_on_chain");
+                    return;
+                }
+                if (!/^0x0{64}$/i.test(release.releaseProofId)) {
+                    throw new TerminalWorkerError("facility_already_released_with_different_proof", "The facility has release evidence that does not match this job", job.facilityId);
                 }
             }
             await this.store.saveJob(job, leaseToken, true);
@@ -268,6 +303,25 @@ export class ProofWorker {
             await this.store.saveJob(job, leaseToken, true);
             return;
         }
+        if (job.state.operation === "release") {
+            const release = await this.chain.readRelease(job.facilityId, job.state.proofId);
+            if (matchingRelease(job.state, release)) {
+                await this.completeStep(job, leaseToken, "release_already_processed_on_chain");
+                return;
+            }
+            if (!/^0x0{64}$/i.test(release.releaseProofId)) {
+                throw new TerminalWorkerError("proof_already_used_or_facility_released", "CC3 state prevents this release proof from being submitted safely", job.facilityId);
+            }
+            const facility = await this.facilityFor(job);
+            if (!facility.repaid) throw new TerminalWorkerError("facility_not_repaid", "The facility is not repaid", job.facilityId);
+            const nonce = job.state.cc3SubmissionNonce ?? await this.chain.reserveSubmissionNonce();
+            job.state = { ...job.state, status: "cc3_submission_pending", nextAction: "check_cc3_submission", cc3SubmissionNonce: nonce };
+            await this.store.saveJob(job, leaseToken, false);
+            const txHash = await this.chain.sendRelease(job.facilityId, job.state.proof!, nonce);
+            job.state = { ...job.state, cc3SubmissionTxHash: txHash, lastErrorCategory: undefined, lastErrorMessage: undefined };
+            await this.store.saveJob(job, leaseToken, true);
+            return;
+        }
         const facility = await this.facilityFor(job);
         if (
             facility.preferredRateActive
@@ -356,6 +410,35 @@ export class ProofWorker {
             if (nonceState.pending > job.state.cc3SubmissionNonce) throw new RetryableWorkerError("submission_nonce_pending", "A transaction is still pending at the reserved nonce", job.facilityId);
             if (!job.state.proof) throw new TerminalWorkerError("submission_proof_missing", "The durable submission intent has no proof payload", job.jobId);
             const txHash = await this.chain.sendBinding(job.facilityId, job.state.proof, job.state.cc3SubmissionNonce);
+            job.state = { ...job.state, cc3SubmissionTxHash: txHash };
+            await this.store.saveJob(job, leaseToken, true);
+            return;
+        }
+
+        if (job.state.operation === "release") {
+            const before = await this.chain.readRelease(job.facilityId, job.state.proofId);
+            if (matchingRelease(job.state, before)) {
+                await this.completeStep(job, leaseToken, "release_already_processed_on_chain");
+                return;
+            }
+            if (job.state.cc3SubmissionTxHash) {
+                const receipt = await this.chain.getReceipt(job.state.cc3SubmissionTxHash);
+                if (!receipt) throw new RetryableWorkerError("cc3_submission_pending", "The CC3 release receipt is not available", job.state.cc3SubmissionTxHash);
+                if (receipt.status !== 1) throw new TerminalWorkerError("cc3_release_reverted", "The CC3 release transaction reverted", job.state.cc3SubmissionTxHash);
+                const after = await this.chain.readRelease(job.facilityId, job.state.proofId);
+                if (!matchingRelease(job.state, after)) throw new TerminalWorkerError("cc3_state_readback_failed", "The successful CC3 release receipt did not produce the expected release state", job.facilityId);
+                job.state = { ...job.state, cc3Receipt: receipt };
+                await this.completeStep(job, leaseToken, "release_receipt_confirmed");
+                return;
+            }
+            if (job.state.cc3SubmissionNonce === undefined) throw new TerminalWorkerError("submission_nonce_missing", "A pending release has no durable nonce", job.jobId);
+            const recoveredHash = await this.chain.findSubmissionByNonce(job.state.cc3SubmissionNonce);
+            if (recoveredHash) { job.state = { ...job.state, cc3SubmissionTxHash: recoveredHash }; await this.store.saveJob(job, leaseToken, true); return; }
+            const nonceState = await this.chain.getSubmissionNonceState();
+            if (nonceState.latest > job.state.cc3SubmissionNonce) throw new TerminalWorkerError("submission_nonce_consumed_without_proof", "The durable submission nonce was consumed without the expected release state", job.facilityId);
+            if (nonceState.pending > job.state.cc3SubmissionNonce) throw new RetryableWorkerError("submission_nonce_pending", "A transaction is still pending at the reserved nonce", job.facilityId);
+            if (!job.state.proof) throw new TerminalWorkerError("submission_proof_missing", "The durable release intent has no proof payload", job.jobId);
+            const txHash = await this.chain.sendRelease(job.facilityId, job.state.proof, job.state.cc3SubmissionNonce);
             job.state = { ...job.state, cc3SubmissionTxHash: txHash };
             await this.store.saveJob(job, leaseToken, true);
             return;

@@ -5,7 +5,9 @@ export const VERD_ABI = [
     "function getFacility(bytes32 facilityId) view returns (address lender,address borrower,uint256 principal,uint256 outstandingPrincipal,uint256 standardAprBps,uint256 preferredAprBps,uint256 currentAprBps,uint256 accruedInterest,uint64 maturity,uint64 qualificationDeadline,uint256 requiredReserveAmount,address reserveLocker)",
     "function getFacilityStatus(bytes32 facilityId) view returns (uint64 lastAccrualTimestamp,bool funded,bool drawn,bool preferredRateActive,bool repaid,bool reserveReleased,bool drawnAtPreferredRate,uint256 repaidAmount)",
     "function getFacilityProof(bytes32 facilityId) view returns (bytes32 qualificationProofId,uint64 qualificationSourceBlock,uint256 reserveReleaseAmount)",
+    "function getFacilityReleaseEvidence(bytes32 facilityId) view returns (bytes32 releaseProofId,uint64 releaseSourceBlock,uint256 releaseAmount)",
     "function getFacilityLockerBinding(bytes32 facilityId) view returns (bytes32 bindingProofId,uint64 bindingSourceBlock,uint64 unlockTime)",
+    "function recordReserveRelease(bytes32 facilityId,uint64 sourceChainKey,uint64 sourceBlock,(uint8 kind,bytes32 root,bytes data) inclusionProof,(bytes32 lowerEndpointDigest,bytes32[] roots) continuityProof) returns (bytes32)",
     "function lockerFacility(address locker) view returns (bytes32)",
     "function processedProof(bytes32 proofId) view returns (bool)",
 ];
@@ -26,6 +28,7 @@ export const LOCKER_ABI = [
     "function aToken() view returns (address)",
     "function unlockTime() view returns (uint256)",
     "function aTokenBalance() view returns (uint256)",
+    "event ReserveReleased(address indexed borrower,address indexed aToken,uint256 amount)",
 ];
 
 export const ADDRESSES = Object.freeze({

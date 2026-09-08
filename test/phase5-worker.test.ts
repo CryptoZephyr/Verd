@@ -20,6 +20,8 @@ import type {
     JobState,
     JobStore,
     QualificationSnapshot,
+    ReleaseSnapshot,
+    ReleaseSourceVerification,
     SerializedProof,
     SourceVerification,
     SubmissionReceipt,
@@ -123,11 +125,16 @@ class FakeChain implements ChainGateway {
         reserveLocker: LOCKER,
         preferredRateActive: false,
         funded: true,
+        repaid: false,
+        reserveReleased: false,
         qualificationProofId: `0x${"00".repeat(32)}`,
         qualificationSourceBlock: 0,
         lockerBindingProofId: `0x${"10".repeat(32)}`,
         lockerBindingSourceBlock: 90,
         lockerUnlockTime: 200,
+        reserveReleaseProofId: `0x${"00".repeat(32)}`,
+        reserveReleaseSourceBlock: 0,
+        reserveReleaseAmount: 0n,
     };
     readonly proof: SerializedProof = {
         chainKey: 1,
@@ -141,6 +148,8 @@ class FakeChain implements ChainGateway {
     processed = false;
     preferred = false;
     receiptReady = false;
+    releaseProcessed = false;
+    releaseTxHash: string | undefined;
     throwFirstSend = false;
     sendNonces: number[] = [];
 
@@ -199,6 +208,19 @@ class FakeChain implements ChainGateway {
         return { bindingProofId: this.processed ? proofId : `0x${"00".repeat(32)}`, bindingSourceBlock: this.processed ? 100 : 0, locker: LOCKER };
     }
 
+    async verifyReleaseSource(_facility: FacilitySnapshot, _sourceTxHash: string, expectedSourceBlock?: number): Promise<ReleaseSourceVerification> {
+        if (expectedSourceBlock !== undefined) assert.equal(expectedSourceBlock, 100);
+        return { sourceBlock: 100, receiptStatus: 1, borrower: BORROWER, aToken: ATOKEN, amount: "500", lockerATokenBalance: "0" };
+    }
+
+    async readRelease(_facilityId: string, proofId: string): Promise<ReleaseSnapshot> {
+        return {
+            releaseProofId: this.releaseProcessed ? proofId : `0x${"00".repeat(32)}`,
+            releaseSourceBlock: this.releaseProcessed ? 100 : 0,
+            releaseAmount: this.releaseProcessed ? "500" : "0",
+        };
+    }
+
     async reserveSubmissionNonce(): Promise<number> {
         return 7;
     }
@@ -226,8 +248,19 @@ class FakeChain implements ChainGateway {
         return `0x${"bc".repeat(32)}`;
     }
 
-    async getReceipt(): Promise<SubmissionReceipt | null> {
+    async sendRelease(_facilityId: string, _proof: SerializedProof, nonce: number): Promise<string> {
+        this.sendNonces.push(nonce);
+        this.releaseTxHash = `0x${"cd".repeat(32)}`;
+        return this.releaseTxHash;
+    }
+
+    async getReceipt(txHash?: string): Promise<SubmissionReceipt | null> {
         if (!this.receiptReady) return null;
+        if (txHash && txHash === this.releaseTxHash) {
+            this.releaseProcessed = true;
+            this.facility.repaid = true;
+            return { status: 1, blockNumber: 501, gasUsed: "12345" };
+        }
         this.processed = true;
         this.preferred = true;
         return { status: 1, blockNumber: 500, gasUsed: "12345" };
@@ -436,6 +469,32 @@ test("binding jobs prove a factory locker and recover through the same durable w
     const completed = await worker.tick(job.jobId);
     assert.equal(completed.outcome, "completed");
     assert.equal(completed.job?.state.idempotencyOutcome, "binding_already_processed_on_chain");
+});
+
+test("release jobs prove repayment release and record authoritative completion", async () => {
+    const store = new MemoryJobStore();
+    const chain = new FakeChain();
+    chain.facility.repaid = true;
+    const job = await createJob(store, { operation: "release", sourceTxHash: `0x${"25".repeat(32)}` });
+    const worker = new ProofWorker(store, chain, config());
+
+    await worker.tick(job.jobId);
+    await worker.tick(job.jobId);
+    await worker.tick(job.jobId);
+    const submitted = await worker.tick(job.jobId);
+    assert.equal(submitted.outcome, "advanced");
+    assert.equal((await store.getJob(job.jobId))?.state.nextAction, "check_cc3_submission");
+
+    const pending = await worker.tick(job.jobId);
+    assert.equal(pending.outcome, "retrying");
+    chain.receiptReady = true;
+    const completed = await worker.tick(job.jobId);
+
+    assert.equal(completed.outcome, "completed");
+    assert.equal(completed.job?.state.status, "completed");
+    assert.equal(completed.job?.state.idempotencyOutcome, "release_receipt_confirmed");
+    assert.equal(chain.releaseProcessed, true);
+    assert.deepEqual(chain.sendNonces, [7]);
 });
 
 test("runtime configuration rejects a non-Sepolia source chain and oversized port", () => {

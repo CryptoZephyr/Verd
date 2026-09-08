@@ -7,7 +7,7 @@ export type JobStatus =
     | "completed"
     | "manual_review";
 
-export type JobOperation = "qualification" | "binding";
+export type JobOperation = "qualification" | "binding" | "release";
 
 export type NextAction =
     | "wait_source_transaction"
@@ -43,11 +43,16 @@ export interface FacilitySnapshot {
     reserveLocker: string;
     preferredRateActive: boolean;
     funded: boolean;
+    repaid: boolean;
+    reserveReleased: boolean;
     qualificationProofId: string;
     qualificationSourceBlock: number;
     lockerBindingProofId: string;
     lockerBindingSourceBlock: number;
     lockerUnlockTime: number;
+    reserveReleaseProofId: string;
+    reserveReleaseSourceBlock: number;
+    reserveReleaseAmount: bigint;
 }
 
 export interface FacilityTermsSnapshot {
@@ -68,6 +73,21 @@ export interface BindingSnapshot {
     bindingProofId: string;
     bindingSourceBlock: number;
     locker: string;
+}
+
+export interface ReleaseSourceVerification {
+    sourceBlock: number;
+    receiptStatus: number;
+    borrower: string;
+    aToken: string;
+    amount: string;
+    lockerATokenBalance: string;
+}
+
+export interface ReleaseSnapshot {
+    releaseProofId: string;
+    releaseSourceBlock: number;
+    releaseAmount: string;
 }
 
 export interface SourceVerification {
@@ -112,15 +132,18 @@ export interface ChainGateway {
         expectedSourceBlock?: number,
     ): Promise<SourceVerification>;
     verifyBindingSource(facility: FacilityTermsSnapshot, sourceTxHash: string, expectedSourceBlock?: number): Promise<BindingSourceVerification>;
+    verifyReleaseSource(facility: FacilitySnapshot, sourceTxHash: string, expectedSourceBlock?: number): Promise<ReleaseSourceVerification>;
     waitForAttestation(sourceBlock: number): Promise<void>;
     generateProof(sourceTxHash: string, sourceBlock: number): Promise<GeneratedProof>;
     readQualification(facilityId: string, proofId: string): Promise<QualificationSnapshot>;
     readBinding(facilityId: string, proofId: string): Promise<BindingSnapshot>;
+    readRelease(facilityId: string, proofId: string): Promise<ReleaseSnapshot>;
     reserveSubmissionNonce(): Promise<number>;
     getSubmissionNonceState(): Promise<{ latest: number; pending: number }>;
     findSubmissionByNonce(nonce: number): Promise<string | null>;
     sendQualification(facilityId: string, proof: SerializedProof, nonce: number): Promise<string>;
     sendBinding(facilityId: string, proof: SerializedProof, nonce: number): Promise<string>;
+    sendRelease(facilityId: string, proof: SerializedProof, nonce: number): Promise<string>;
     getReceipt(txHash: string): Promise<SubmissionReceipt | null>;
 }
 
@@ -151,6 +174,7 @@ export interface JobState {
     sourceBlock?: number;
     sourceReceiptStatus?: number;
     sourceEvent?: SourceVerification["event"];
+    releaseEvent?: { borrower: string; aToken: string; amount: string };
     lockerATokenBalance?: string;
     bindingLocker?: string;
     bindingUnlockTime?: number;

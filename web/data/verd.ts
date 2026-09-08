@@ -22,7 +22,7 @@ export const SEPOLIA = {
 } as const;
 
 export const VERIFIED_DEPLOYMENT = {
-  verdAddress: "0xc36768eca67D65C454bD52ebbE4954dFe8B81CF7",
+  verdAddress: "0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328",
   facilityId: "0xfbef1da27e678746f384e2bd29d94b2063b2aac78a23e4983e88709a4d038de1",
   workerUrl: "https://verd-phase5-worker.onrender.com",
 } as const;
@@ -42,6 +42,7 @@ export const VERD_WEB_ABI = [
   "function getFacility(bytes32 facilityId) view returns (address lender,address borrower,uint256 principal,uint256 outstandingPrincipal,uint256 standardAprBps,uint256 preferredAprBps,uint256 currentAprBps,uint256 accruedInterest,uint64 maturity,uint64 qualificationDeadline,uint256 requiredReserveAmount,address reserveLocker)",
   "function getFacilityStatus(bytes32 facilityId) view returns (uint64 lastAccrualTimestamp,bool funded,bool drawn,bool preferredRateActive,bool repaid,bool reserveReleased,bool drawnAtPreferredRate,uint256 repaidAmount)",
   "function getFacilityProof(bytes32 facilityId) view returns (bytes32 qualificationProofId,uint64 qualificationSourceBlock,uint256 reserveReleaseAmount)",
+  "function getFacilityReleaseEvidence(bytes32 facilityId) view returns (bytes32 releaseProofId,uint64 releaseSourceBlock,uint256 releaseAmount)",
   "function getFacilityLockerBinding(bytes32 facilityId) view returns (bytes32 bindingProofId,uint64 bindingSourceBlock,uint64 unlockTime)",
   "function createFacility(bytes32 facilityId,address borrower,uint256 principal,uint256 standardAprBps,uint256 preferredAprBps,uint64 maturity,uint64 qualificationDeadline,uint256 requiredReserveAmount)",
   "function fundFacility(bytes32 facilityId) payable",
@@ -60,6 +61,7 @@ const SEPOLIA_ERC20_ABI = [
   "function allowance(address owner,address spender) view returns (uint256)",
 ];
 const SEPOLIA_AAVE_ABI = ["function supply(address asset,uint256 amount,address onBehalfOf,uint16 referralCode)"];
+const SEPOLIA_LOCKER_ABI = ["function release() returns (uint256)"];
 
 export const FACILITY_STATE_LABELS = [
   "Draft",
@@ -104,6 +106,8 @@ export type FacilityRecord = {
   qualificationProofId: string;
   qualificationSourceBlock: number;
   reserveReleaseAmount: bigint;
+  releaseProofId: string;
+  releaseSourceBlock: number;
   bindingProofId: string;
   bindingSourceBlock: number;
   lockerUnlockTime: number;
@@ -115,11 +119,12 @@ export async function loadFacility(id: string = VERIFIED_DEPLOYMENT.facilityId):
   const contract = new Contract(VERIFIED_DEPLOYMENT.verdAddress, VERD_WEB_ABI, provider);
   const exists = await contract.facilityExists(id);
   if (!exists) throw new Error("The facility was not found in the verified Verd deployment.");
-  const [facility, status, proof, binding, state] = await Promise.all([
+  const [facility, status, proof, binding, release, state] = await Promise.all([
     contract.getFacility(id),
     contract.getFacilityStatus(id),
     contract.getFacilityProof(id),
     contract.getFacilityLockerBinding(id),
+    contract.getFacilityReleaseEvidence(id),
     contract.facilityState(id),
   ]);
   return {
@@ -128,7 +133,7 @@ export async function loadFacility(id: string = VERIFIED_DEPLOYMENT.facilityId):
     standardAprBps: facility[4], preferredAprBps: facility[5], currentAprBps: facility[6], accruedInterest: facility[7],
     maturity: Number(facility[8]), qualificationDeadline: Number(facility[9]), requiredReserveAmount: facility[10], reserveLocker: facility[11],
     lastAccrualTimestamp: Number(status[0]), funded: status[1], drawn: status[2], preferredRateActive: status[3], repaid: status[4], reserveReleased: status[5], drawnAtPreferredRate: status[6], repaidAmount: status[7],
-    qualificationProofId: proof[0], qualificationSourceBlock: Number(proof[1]), reserveReleaseAmount: proof[2],
+    qualificationProofId: proof[0], qualificationSourceBlock: Number(proof[1]), reserveReleaseAmount: proof[2], releaseProofId: release[0], releaseSourceBlock: Number(release[1]),
     bindingProofId: binding[0], bindingSourceBlock: Number(binding[1]), lockerUnlockTime: Number(binding[2]), state: Number(state),
   };
 }
@@ -241,7 +246,16 @@ export async function repayFacility(id: string, amount: bigint) {
   return transaction.hash as string;
 }
 
-export function qualificationJobMessage(input: { facilityId: string; sourceTxHash: string; sourceBlock?: number; operation?: "qualification" | "binding" }, issuedAt: number) {
+export async function releaseReserve(locker: string) {
+  if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
+  const provider = new BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const contract = new Contract(locker, SEPOLIA_LOCKER_ABI, signer);
+  const transaction = await contract.release();
+  return transaction.hash as string;
+}
+
+export function qualificationJobMessage(input: { facilityId: string; sourceTxHash: string; sourceBlock?: number; operation?: "qualification" | "binding" | "release" }, issuedAt: number) {
   return [
     "Verd qualification job",
     `Operation: ${input.operation ?? "qualification"}`,
@@ -252,7 +266,7 @@ export function qualificationJobMessage(input: { facilityId: string; sourceTxHas
   ].join("\n");
 }
 
-export async function registerQualificationJob(input: { facilityId: string; sourceTxHash: string; sourceBlock?: number; operation?: "qualification" | "binding" }) {
+export async function registerQualificationJob(input: { facilityId: string; sourceTxHash: string; sourceBlock?: number; operation?: "qualification" | "binding" | "release" }) {
   if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
   const provider = new BrowserProvider(window.ethereum);
   const signer = await provider.getSigner();

@@ -12,6 +12,8 @@ import type {
     FacilityTermsSnapshot,
     GeneratedProof,
     QualificationSnapshot,
+    ReleaseSnapshot,
+    ReleaseSourceVerification,
     SerializedProof,
     SourceVerification,
     SubmissionReceipt,
@@ -135,6 +137,7 @@ export class LiveChainGateway implements ChainGateway {
             const status = await this.verd.getFacilityStatus(facilityId);
             const proof = await this.verd.getFacilityProof(facilityId);
             const binding = await this.verd.getFacilityLockerBinding(facilityId);
+            const release = await this.verd.getFacilityReleaseEvidence(facilityId);
             const locker = String(raw[11]);
             if (sameAddress(locker, ZERO_ADDRESS)) {
                 throw new TerminalWorkerError("facility_locker_unbound", "The facility has no authenticated ReserveLocker", facilityId);
@@ -157,11 +160,16 @@ export class LiveChainGateway implements ChainGateway {
                 reserveLocker: locker,
                 preferredRateActive: Boolean(status[3]),
                 funded: Boolean(status[1]),
+                repaid: Boolean(status[4]),
+                reserveReleased: Boolean(status[5]),
                 qualificationProofId: String(proof[0]),
                 qualificationSourceBlock: toNumber(proof[1]),
                 lockerBindingProofId: String(binding[0]),
                 lockerBindingSourceBlock: toNumber(binding[1]),
                 lockerUnlockTime: toNumber(binding[2]),
+                reserveReleaseProofId: String(release[0]),
+                reserveReleaseSourceBlock: toNumber(release[1]),
+                reserveReleaseAmount: BigInt(release[2]),
             };
         } catch (error) {
             if (error instanceof TerminalWorkerError) throw error;
@@ -330,6 +338,76 @@ export class LiveChainGateway implements ChainGateway {
         return { sourceBlock: receipt.blockNumber, receiptStatus: receipt.status, locker, borrower, unlockTime };
     }
 
+    async verifyReleaseSource(facility: FacilitySnapshot, sourceTxHash: string, expectedSourceBlock?: number): Promise<ReleaseSourceVerification> {
+        let tx: ethers.TransactionResponse | null;
+        let receipt: TransactionReceipt | null;
+        try {
+            [tx, receipt] = await Promise.all([
+                this.sepolia.getTransaction(sourceTxHash),
+                this.sepolia.getTransactionReceipt(sourceTxHash),
+            ]);
+        } catch (error) {
+            throw new RetryableWorkerError("sepolia_rpc_unavailable", cleanError(error), sourceTxHash);
+        }
+        if (!tx || !receipt) throw new RetryableWorkerError("source_transaction_pending", "The release transaction or receipt is not available", sourceTxHash);
+        if (receipt.status !== 1) throw new TerminalWorkerError("source_transaction_failed", "The release transaction reverted", sourceTxHash);
+        if (expectedSourceBlock !== undefined && receipt.blockNumber !== expectedSourceBlock) {
+            throw new TerminalWorkerError("source_block_mismatch", "The source receipt block differs from the registered block", sourceTxHash);
+        }
+        if (!sameAddress(tx.from, facility.borrower)) {
+            throw new TerminalWorkerError("release_borrower_mismatch", "The release transaction sender differs from the facility borrower", sourceTxHash);
+        }
+        if (!tx.to || !sameAddress(tx.to, facility.reserveLocker)) {
+            throw new TerminalWorkerError("release_source_mismatch", "The release transaction destination is not the authenticated ReserveLocker", sourceTxHash);
+        }
+
+        const block = await this.sepolia.getBlock(receipt.blockNumber);
+        if (!block) throw new RetryableWorkerError("sepolia_block_unavailable", "The release receipt block is not available", sourceTxHash);
+        if (block.timestamp < facility.lockerUnlockTime) {
+            throw new TerminalWorkerError("release_before_unlock", "The release transaction is before the locker unlock time", sourceTxHash);
+        }
+
+        const iface = new ethers.Interface(LOCKER_ABI);
+        let releaseEvent: ethers.LogDescription | null = null;
+        for (const log of receipt.logs) {
+            if (!sameAddress(log.address, facility.reserveLocker)) continue;
+            try {
+                const parsed = iface.parseLog({ topics: log.topics, data: log.data });
+                if (parsed?.name === "ReserveReleased") {
+                    releaseEvent = parsed;
+                    break;
+                }
+            } catch {
+                // Ignore unrelated locker logs.
+            }
+        }
+        if (!releaseEvent) throw new TerminalWorkerError("release_event_missing", "The release receipt has no ReserveReleased event", sourceTxHash);
+        const borrower = String(releaseEvent.args[0]);
+        const aToken = String(releaseEvent.args[1]);
+        const amount = BigInt(releaseEvent.args[2]);
+        if (!sameAddress(borrower, facility.borrower)) throw new TerminalWorkerError("release_event_borrower_mismatch", "The release event borrower differs from the facility borrower", sourceTxHash);
+        if (!sameAddress(aToken, ADDRESSES.sepoliaAWeth)) throw new TerminalWorkerError("release_event_atoken_mismatch", "The release event token is not the approved aWETH", sourceTxHash);
+        if (amount === 0n) throw new TerminalWorkerError("release_amount_zero", "The release event amount is zero", sourceTxHash);
+
+        try {
+            const locker = new ethers.Contract(facility.reserveLocker, LOCKER_ABI, this.sepolia);
+            const balance = BigInt(await locker.aTokenBalance());
+            if (balance !== 0n) throw new TerminalWorkerError("release_balance_readback_failed", "The locker still holds a nonzero aToken balance after release", sourceTxHash);
+            return {
+                sourceBlock: receipt.blockNumber,
+                receiptStatus: receipt.status,
+                borrower,
+                aToken,
+                amount: amount.toString(),
+                lockerATokenBalance: balance.toString(),
+            };
+        } catch (error) {
+            if (error instanceof TerminalWorkerError) throw error;
+            if (isLikelyRetryable(error)) throw new RetryableWorkerError("sepolia_rpc_unavailable", cleanError(error), sourceTxHash);
+            throw new TerminalWorkerError("release_read_failed", cleanError(error), sourceTxHash);
+        }
+    }
+
     private proofBuilder(): any {
         return new sdk.proofProvider.service.ProofBuilder(
             this.config.sourceChainKey,
@@ -439,6 +517,23 @@ export class LiveChainGateway implements ChainGateway {
         }
     }
 
+    async readRelease(facilityId: string, proofId: string): Promise<ReleaseSnapshot> {
+        try {
+            const [evidence, processed] = await Promise.all([
+                this.verd.getFacilityReleaseEvidence(facilityId),
+                this.verd.processedProof(proofId),
+            ]);
+            return {
+                releaseProofId: processed ? String(evidence[0]) : ZERO_BYTES32,
+                releaseSourceBlock: toNumber(evidence[1]),
+                releaseAmount: BigInt(evidence[2]).toString(),
+            };
+        } catch (error) {
+            if (isLikelyRetryable(error)) throw new RetryableWorkerError("cc3_read_unavailable", cleanError(error), facilityId);
+            throw new TerminalWorkerError("release_state_read_failed", cleanError(error), facilityId);
+        }
+    }
+
     async reserveSubmissionNonce(): Promise<number> {
         try {
             return await this.cc3.getTransactionCount(this.signer.address, "pending");
@@ -504,6 +599,25 @@ export class LiveChainGateway implements ChainGateway {
         } catch (error) {
             if (/revert|call exception|execution reverted|invalid argument/i.test(cleanError(error).toLowerCase())) {
                 throw new TerminalWorkerError("cc3_binding_rejected", cleanError(error), facilityId);
+            }
+            throw new RetryableWorkerError("cc3_submission_unavailable", cleanError(error), facilityId);
+        }
+    }
+
+    async sendRelease(facilityId: string, proof: SerializedProof, nonce: number): Promise<string> {
+        try {
+            const tx = await this.verd.recordReserveRelease(
+                facilityId,
+                proof.chainKey,
+                proof.headerNumber,
+                proofEnvelope(proof),
+                continuityEnvelope(proof),
+                { gasLimit: this.config.cc3GasLimit, nonce },
+            );
+            return String(tx.hash);
+        } catch (error) {
+            if (/revert|call exception|execution reverted|invalid argument/i.test(cleanError(error).toLowerCase())) {
+                throw new TerminalWorkerError("cc3_release_rejected", cleanError(error), facilityId);
             }
             throw new RetryableWorkerError("cc3_submission_unavailable", cleanError(error), facilityId);
         }
