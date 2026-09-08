@@ -293,6 +293,25 @@ contract VerdTest {
         verd.repayFacility{value: PRINCIPAL - 1}(FACILITY_ID);
     }
 
+    function test_repaymentRefundsAnAmountAboveTheFinalDue() public {
+        createFacility();
+        vm.prank(LENDER);
+        verd.fundFacility{value: PRINCIPAL}(FACILITY_ID);
+        vm.prank(BORROWER);
+        verd.drawFacility(FACILITY_ID);
+
+        vm.warp(maturity);
+        uint256 due = PRINCIPAL + verd.accrueInterest(FACILITY_ID);
+        uint256 extra = 1 ether;
+        uint256 lenderBefore = LENDER.balance;
+        vm.deal(BORROWER, due + extra);
+        vm.prank(BORROWER);
+        verd.repayFacility{value: due + extra}(FACILITY_ID);
+
+        require(BORROWER.balance == extra, "borrower refund");
+        require(LENDER.balance == lenderBefore + due, "lender receives due");
+    }
+
     function createFacility() private {
         vm.prank(LENDER);
         verd.createFacility(

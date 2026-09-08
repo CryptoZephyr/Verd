@@ -53,6 +53,7 @@ function config(): Config {
         attestationRequestTimeoutMs: 1,
         attestationMaxWaitMs: 1,
         attestationPollIntervalMs: 1,
+        workerTickIntervalMs: 1,
         maxBodyBytes: 64 * 1024,
     };
 }

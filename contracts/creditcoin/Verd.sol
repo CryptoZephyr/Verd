@@ -412,13 +412,14 @@ contract Verd {
         uint256 principalAmount = facility.outstandingPrincipal;
         uint256 interestAmount = facility.accruedInterest;
         uint256 totalAmount = principalAmount + interestAmount;
-        if (msg.value != totalAmount) revert RepaymentAmountMismatch();
+        if (msg.value < totalAmount) revert RepaymentAmountMismatch();
 
         facility.outstandingPrincipal = 0;
         facility.repaid = true;
         facility.repaidAmount = totalAmount;
 
         _sendValue(facility.lender, totalAmount);
+        if (msg.value > totalAmount) _sendValue(facility.borrower, msg.value - totalAmount);
         emit FacilityRepaid(
             facilityId,
             facility.borrower,

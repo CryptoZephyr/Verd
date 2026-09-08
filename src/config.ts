@@ -20,6 +20,7 @@ export interface Config {
     attestationRequestTimeoutMs: number;
     attestationMaxWaitMs: number;
     attestationPollIntervalMs: number;
+    workerTickIntervalMs: number;
     maxBodyBytes: number;
 }
 
@@ -114,6 +115,7 @@ export function loadConfig(): Config {
         attestationRequestTimeoutMs: positiveInt("ATTESTATION_REQUEST_TIMEOUT_MS", 2500),
         attestationMaxWaitMs: positiveInt("ATTESTATION_MAX_WAIT_MS", 5000),
         attestationPollIntervalMs: positiveInt("ATTESTATION_POLL_INTERVAL_MS", 1000),
+        workerTickIntervalMs: positiveInt("WORKER_TICK_INTERVAL_MS", 5000, 60_000),
         maxBodyBytes: positiveInt("MAX_BODY_BYTES", 64 * 1024),
     };
 }

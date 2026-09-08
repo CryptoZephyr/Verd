@@ -1,6 +1,9 @@
 import { Link, useParams } from "react-router-dom";
 import { useState } from "react";
-import { CC3, SEPOLIA, VERIFIED_DEPLOYMENT, VERIFIED_EVIDENCE, explorerAddress, explorerTx } from "./data/verd";
+import { CC3, PUBLISHED_COMPLETED_REFERENCE, SEPOLIA, VERIFIED_DEPLOYMENT, VERIFIED_EVIDENCE, explorerAddress, explorerTx } from "./data/verd";
+
+const activeDeploymentHasPublishedCompletion = VERIFIED_DEPLOYMENT.verdAddress.toLowerCase() === PUBLISHED_COMPLETED_REFERENCE.verdAddress.toLowerCase()
+  && VERIFIED_DEPLOYMENT.facilityId.toLowerCase() === PUBLISHED_COMPLETED_REFERENCE.facilityId.toLowerCase();
 
 type DocBlock =
   | { kind: "paragraph"; text: string }
@@ -8,6 +11,7 @@ type DocBlock =
   | { kind: "steps"; items: string[] }
   | { kind: "code"; language: string; code: string }
   | { kind: "callout"; tone: "info" | "warning" | "security"; label: string; text: string }
+  | { kind: "external-links"; links: Array<{ label: string; href: string }> }
   | { kind: "table"; headers: string[]; rows: string[][] };
 
 export type DocsPage = {
@@ -173,13 +177,14 @@ export const DOCS_PAGES: Record<string, DocsPage> = {
     { kind: "paragraph", text: "A status never replaces the underlying contract read. If a transaction times out or a proof service is delayed, the workspace should show the last confirmed state and a safe retry or inspection path rather than asking the user to repeat a completed action." },
     { kind: "callout", tone: "warning", label: "SAFE RECOVERY", text: "Do not repeat a reserve action or a facility transaction just because the interface lost a response. Re-read the facility, source transaction, and job status first, then use the workspace's next safe action." },
   ]),
-  "use/wallet-guide": page("use", "wallet-guide", "Wallet and testnet guidance.", "DOCS / USE VERD / WALLET GUIDANCE", "Verd keeps wallet actions behind a connected account and the correct testnet network. You can inspect public facility data without connecting a wallet.", ["Networks", "Before signing", "What Verd never asks for"], [
+  "use/wallet-guide": page("use", "wallet-guide", "Wallet and testnet guidance.", "DOCS / USE VERD / WALLET GUIDANCE", "Verd keeps wallet actions behind a connected account and the correct testnet network. You can inspect public facility data without connecting a wallet.", ["Networks", "Before signing", "Testnet assets", "What Verd never asks for"], [
     { kind: "table", headers: ["Action", "Network", "Who usually performs it"], rows: [
       ["Create, fund, draw, or repay a facility", "Creditcoin Testnet CC3", "Recorded lender or borrower"],
       ["Create the reserve locker or lock WETH", "Ethereum Sepolia", "Recorded borrower"],
       ["Inspect terms, state, and evidence", "No wallet connection required", "Anyone"],
     ] },
-    { kind: "bullets", items: ["Read the full action label, amount, network, and facility context before confirming a wallet prompt.", "Use testnet assets only in the current release.", "If the workspace asks you to switch networks, confirm that the action matches the facility step you intend to take.", "Re-read facility state after a transaction before starting another action." ] },
+    { kind: "bullets", items: ["Read the full action label, amount, network, and facility context before confirming a wallet prompt.", "The lender needs enough tCTC for the principal and gas. The borrower needs Sepolia ETH for gas and enough WETH for the stated reserve.", "Verd can wrap a borrower's Sepolia ETH into WETH when the reserve is short. It never wraps or moves assets without a wallet confirmation.", "If the workspace asks you to switch networks, confirm that the action matches the facility step you intend to take.", "Re-read facility state after a transaction before starting another action." ] },
+    { kind: "external-links", links: [{ label: "Get Creditcoin Testnet tCTC", href: "https://docs.creditcoin.org/wallets/using-testnet-faucet" }, { label: "Find a Sepolia ETH faucet", href: "https://ethereum.org/developers/docs/networks/" }] },
     { kind: "callout", tone: "security", label: "NEVER SHARE SECRETS", text: "Verd never asks for a seed phrase, private key, wallet password, or internal worker secret. Stop if a prompt requests any of them." },
   ]),
   "concepts/facilities": page("concepts", "facilities", "Facilities.", "DOCS / CONCEPTS / FACILITIES", "A facility is a fixed-term agreement between a lender and a borrower, recorded on Creditcoin.", ["Terms", "Roles", "Actions"], [
@@ -253,10 +258,10 @@ export const DOCS_PAGES: Record<string, DocsPage> = {
     { kind: "bullets", items: ["The facility must be funded.", "The connected wallet must match the borrower.", "The current timestamp must be before maturity.", "The draw can happen once.", "The preferred rate applies only when the condition is active onchain." ] },
     { kind: "steps", items: ["Connect the borrower wallet and switch to CC3.", "Review standard APR, preferred APR, current APR, outstanding amount, and maturity.", "Submit drawFacility for the facility ID.", "Wait for confirmation and refresh the workspace." ] },
   ]),
-  "build/repay": page("build", "repay", "Repay.", "DOCS / BUILD / REPAY", "Repayment closes the CC3 debt after maturity when the sent amount equals outstanding principal plus accrued interest.", ["Estimate", "Submit", "Confirm"], [
-    { kind: "paragraph", text: "The interface presents an estimate from the last accrual timestamp, current APR, outstanding principal, and the fixed 365-day year. The contract recalculates the amount at submission and remains authoritative." },
-    { kind: "steps", items: ["Connect the borrower wallet and switch to CC3.", "Wait until maturity.", "Review the current repayment estimate.", "Submit repayFacility with the exact contract-required value.", "Read back repaid state and repayment evidence." ] },
-    { kind: "callout", tone: "info", label: "POST-MATURITY RECORD", text: "The current fixed-term contract rejects repayment before maturity. The recorded testnet facility now includes a confirmed repayment and reserve-release proof after maturity." },
+  "build/repay": page("build", "repay", "Repay.", "DOCS / BUILD / REPAY", "Repayment closes the CC3 debt after maturity when the sent amount covers outstanding principal plus accrued interest.", ["Estimate", "Submit", "Confirm"], [
+    { kind: "paragraph", text: "The interface presents an estimate from the last accrual timestamp, current APR, outstanding principal, and the fixed 365-day year. It adds a small timing buffer for the wallet request. The contract keeps only the amount due and returns any excess to the borrower." },
+    { kind: "steps", items: ["Connect the borrower wallet and switch to CC3.", "Wait until maturity.", "Review the current repayment estimate.", "Submit repayFacility through the workspace.", "Read back repaid state and repayment evidence." ] },
+    { kind: "callout", tone: "info", label: "POST-MATURITY RECORD", text: "The current fixed-term contract rejects repayment before maturity. The documentation also preserves a historical testnet facility with confirmed repayment and reserve-release proof after maturity." },
   ]),
   "build/release": page("build", "release", "Release the reserve.", "DOCS / BUILD / RELEASE THE RESERVE", "The borrower releases the aToken position from the locker after the immutable time boundary.", ["Before release", "Release", "Completion"], [
     { kind: "bullets", items: ["The locker must have reached its unlock time.", "The caller must be the configured borrower.", "The locker balance must be nonzero.", "The release transfers the complete current aToken balance." ] },
@@ -320,21 +325,21 @@ export const DOCS_PAGES: Record<string, DocsPage> = {
     { kind: "table", headers: ["Index", "Label"], rows: ["Draft", "Funding pending", "Awaiting borrower action", "Qualification in progress", "Preferred Rate Condition active", "Drawn standard", "Drawn preferred", "Active", "Qualification expired", "Matured", "Repayment pending", "Repaid", "Reserve releasable", "Complete", "Failed with recovery required"].map((label, index) => [String(index), label]) },
     { kind: "bullets", items: ["Derive labels from authoritative contract fields and worker status.", "Keep loading, unavailable, pending, and confirmed distinct.", "Never show complete without repayment and release evidence.", "Never show preferred active without the proof-backed state." ] },
   ]),
-  "evidence/current-deployment": page("evidence", "current-deployment", "Current deployment.", "DOCS / EVIDENCE / CURRENT DEPLOYMENT", "Verd's current interface reads the recorded CC3 deployment and testnet evidence directly.", ["Contract", "Facility", "Worker boundary"], [
-    { kind: "bullets", items: [`Verd: ${VERIFIED_DEPLOYMENT.verdAddress}`, `Recorded facility: ${VERIFIED_DEPLOYMENT.facilityId}`, `CC3 chain ID: ${CC3.chainId}`, `Sepolia chain ID: ${SEPOLIA.chainId}`] },
-    { kind: "paragraph", text: "The recorded facility is funded, drawn at the preferred rate, repaid after maturity, and complete after an authenticated reserve-release proof. The workspace reads those conditions from CC3 and links the external source records." },
+  "evidence/current-deployment": page("evidence", "current-deployment", "Current deployment.", "DOCS / EVIDENCE / CURRENT DEPLOYMENT", "Verd's current interface reads the configured CC3 deployment and selected testnet reference directly.", ["Contract", "Facility", "Worker boundary"], [
+    { kind: "bullets", items: [`Verd: ${VERIFIED_DEPLOYMENT.verdAddress}`, `Selected facility: ${VERIFIED_DEPLOYMENT.facilityId}`, `CC3 chain ID: ${CC3.chainId}`, `Sepolia chain ID: ${SEPOLIA.chainId}`] },
+    { kind: "paragraph", text: activeDeploymentHasPublishedCompletion ? "The published facility is funded, drawn at the preferred rate, repaid after maturity, and complete after an authenticated reserve-release proof. The workspace reads those conditions from CC3 and links the external source records." : "The selected facility is a fresh record on the active contract. Its current state appears in the workspace. Historical completion records belong to the previous Verd contract and are never applied to this facility." },
     { kind: "callout", tone: "warning", label: "TESTNET BOUNDARY", text: "The public frontend and worker are testnet deployments. They have no independent security audit and do not represent a Mainnet or production lending guarantee." },
   ]),
-  "evidence/cross-chain-evidence": page("evidence", "cross-chain-evidence", "Cross-chain evidence.", "DOCS / EVIDENCE / CROSS-CHAIN", "The recorded facility has source and destination records for its locker, reserve, rate condition, repayment, and release.", ["Locker binding", "Aave reserve", "Qualification", "Release"], [
+  "evidence/cross-chain-evidence": page("evidence", "cross-chain-evidence", "Published cross-chain evidence.", "DOCS / EVIDENCE / CROSS-CHAIN", `This historical completed record belongs to ${PUBLISHED_COMPLETED_REFERENCE.verdAddress} and facility ${PUBLISHED_COMPLETED_REFERENCE.facilityId}.`, ["Locker binding", "Aave reserve", "Qualification", "Release"], [
     { kind: "table", headers: ["Record", "Transaction or block", "What it supports"], rows: [["Locker creation", "Sepolia block 11662381", "Factory event and immutable locker configuration"], ["Locker binding", VERIFIED_EVIDENCE.lockerBindingTx, "CC3 binding proof and facility association"], ["Aave Supply", VERIFIED_EVIDENCE.reserveSupplyTx, "Exact WETH supply to the authenticated locker"], ["Qualification", VERIFIED_EVIDENCE.qualificationTx, "Preferred Rate Condition activation"], ["Draw", VERIFIED_EVIDENCE.drawTx, "Borrower draw at the preferred rate"], ["Repayment", VERIFIED_EVIDENCE.repaymentTx, "Post-maturity CC3 repayment"], ["Reserve release", VERIFIED_EVIDENCE.reserveReleaseTx, "Borrower-authorized Sepolia release"], ["Release source", "Sepolia block 11662700", "Source receipt and ReserveReleased event" ]] },
     { kind: "paragraph", text: "Inspect the external transaction records before relying on a proof claim. A proof identifier supports the verifier input and processing record, while the final facility state still comes from CC3." },
   ]),
   "evidence/worker-evidence": page("evidence", "worker-evidence", "Worker evidence.", "DOCS / EVIDENCE / WORKER", "Worker records explain progress and recovery without replacing chain state.", ["Durable metadata", "Recovery", "Current boundary"], [
     { kind: "bullets", items: ["Facility ID and source transaction form the idempotency key.", "Source block, receipt status, proof ID, submission nonce, transaction hash, retry count, and error category are persisted when available.", "A restart resumes from the last safe state and checks destination state before retrying.", "Public status returns progress, next action, and evidence identifiers without exposing the internal secret." ] },
-    { kind: "callout", tone: "warning", label: "NO AUTONOMOUS CLAIM", text: "Unless an external scheduler is configured and verified, active browser polling is the only progression trigger that can be claimed for the product demo." },
+    { kind: "callout", tone: "info", label: "AUTOMATED PROGRESSION", text: "The worker starts a safe server-side tick when a borrower registers a job and polls durable jobs on its configured interval while the service is online. Browser status reads show progress, but they do not carry the worker secret or submit the proof themselves." },
   ]),
-  "evidence/recorded-lifecycle": page("evidence", "recorded-lifecycle", "Recorded lifecycle.", "DOCS / EVIDENCE / RECORDED LIFECYCLE", "The current record proves the fresh facility from creation through repayment and reserve release.", ["Proven", "Open", "How to read it"], [
-    { kind: "table", headers: ["Area", "Current record"], rows: [["Facility", "Created and funded on CC3"], ["Reserve", "WETH supplied to the configured Sepolia locker"], ["Binding", "Factory event authenticated and bound on CC3"], ["Preferred rate", "Active in CC3 state"], ["Draw", "Completed at the preferred APR"], ["Repayment", "Completed after maturity"], ["Reserve release", "Completed on Sepolia and recorded on CC3"], ["Final state", "Complete, state 13"]] },
+  "evidence/recorded-lifecycle": page("evidence", "recorded-lifecycle", "Published lifecycle.", "DOCS / EVIDENCE / RECORDED LIFECYCLE", "This completed historical record remains available for inspection. Every new contract and facility begins with its own evidence.", ["Proven", "Open", "How to read it"], [
+    { kind: "table", headers: ["Area", "Historical completed record"], rows: [["Facility", "Created and funded on CC3"], ["Reserve", "WETH supplied to the configured Sepolia locker"], ["Binding", "Factory event authenticated and bound on CC3"], ["Preferred rate", "Active in CC3 state"], ["Draw", "Completed at the preferred APR"], ["Repayment", "Completed after maturity"], ["Reserve release", "Completed on Sepolia and recorded on CC3"], ["Final state", "Complete, state 13"]] },
     { kind: "callout", tone: "info", label: "TRUTHFUL STATUS", text: "Documentation distinguishes confirmed external records, local implementation coverage, and open lifecycle evidence. It does not turn a test record into a production claim." },
   ]),
   "security/trust-boundaries": page("security", "trust-boundaries", "Trust model.", "DOCS / SECURITY / TRUST MODEL", "Verd is safest when every component stays within its declared authority.", ["Authorities", "Threats", "Controls"], [
@@ -386,6 +391,7 @@ function RenderBlock({ block }: { block: DocBlock }) {
   if (block.kind === "steps") return <ol>{block.items.map(item => <li key={item}>{item}</li>)}</ol>;
   if (block.kind === "code") return <pre className="docs-code"><code data-language={block.language}>{block.code}</code></pre>;
   if (block.kind === "callout") return <div className={`docs-callout docs-callout-${block.tone}`}><span className="mono">{block.label}</span><p>{block.text}</p></div>;
+  if (block.kind === "external-links") return <div className="doc-external-links">{block.links.map(link => <a className="text-link" href={link.href} target="_blank" rel="noreferrer" key={link.href}>{link.label} ↗</a>)}</div>;
   return <div className="docs-table-wrap"><table><thead><tr>{block.headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{block.rows.map(row => <tr key={row.join("|")}>{row.map(cell => <td key={cell}>{cell}</td>)}</tr>)}</tbody></table></div>;
 }
 

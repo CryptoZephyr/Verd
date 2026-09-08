@@ -37,3 +37,5 @@ services:
         value: "5000"
       - key: ATTESTATION_POLL_INTERVAL_MS
         value: "1000"
+      - key: WORKER_TICK_INTERVAL_MS
+        value: "5000"

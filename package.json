@@ -25,6 +25,8 @@
     "phase0:negative": "node scripts/phase0-adversarial.mjs --mode wrong-borrower",
     "phase0:replay": "node scripts/phase0-adversarial.mjs --mode replay",
     "phase3:live": "node scripts/phase3-live.mjs",
+    "phase5:deploy-repayment-safety": "node scripts/phase5-deploy-repayment-safety.mjs",
+    "phase5:create-public-reference": "node scripts/phase5-create-public-reference.mjs",
     "phase4:recovery": "node --test test/phase4-recovery.test.mjs"
   },
   "dependencies": {

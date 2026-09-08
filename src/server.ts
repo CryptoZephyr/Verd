@@ -51,6 +51,22 @@ function publicJob(job: JobRecord): Record<string, unknown> {
     };
 }
 
+async function advanceWorker(worker: ProofWorker, jobId?: string): Promise<void> {
+    try {
+        const result = await worker.tick(jobId);
+        if (result.outcome !== "idle" && result.outcome !== "busy") {
+            console.log(JSON.stringify({
+                event: "worker_tick",
+                outcome: result.outcome,
+                jobId: result.job?.jobId ?? jobId ?? null,
+                status: result.job?.state.status ?? null,
+            }));
+        }
+    } catch (error) {
+        console.error(JSON.stringify({ event: "worker_tick_failed", jobId: jobId ?? null, error: cleanError(error) }));
+    }
+}
+
 function bearerOrHeader(req: IncomingMessage): string {
     const header = req.headers["x-internal-tick-secret"];
     if (typeof header === "string") return header;
@@ -184,6 +200,7 @@ export function createHttpServer(store: JobStore, worker: ProofWorker, config: C
                 if (!Number.isSafeInteger(issuedAt)) throw new BadRequestError("issuedAt must be a millisecond timestamp");
                 const input = jobInput(payload);
                 const result = await worker.registerBorrowerJob(input, walletAddress, signature, issuedAt);
+                void advanceWorker(worker, result.job.jobId);
                 json(res, result.created ? 201 : 200, {
                     created: result.created,
                     idempotencyKey: `${result.job.facilityId}|${result.job.sourceTxHash}`,
@@ -239,9 +256,12 @@ async function main(): Promise<void> {
     const chain = new LiveChainGateway(config);
     const worker = new ProofWorker(store, chain, config);
     const server = createHttpServer(store, worker, config);
+    const workerTimer = setInterval(() => void advanceWorker(worker), config.workerTickIntervalMs);
+    void advanceWorker(worker);
 
     const shutdown = async (signal: string) => {
         console.log(JSON.stringify({ event: "shutdown", signal }));
+        clearInterval(workerTimer);
         server.close(async () => {
             await store.close();
             process.exit(0);

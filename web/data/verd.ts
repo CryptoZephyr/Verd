@@ -21,9 +21,14 @@ export const SEPOLIA = {
   weth: "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c",
 } as const;
 
-export const VERIFIED_DEPLOYMENT = {
+export const PUBLISHED_COMPLETED_REFERENCE = {
   verdAddress: "0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328",
   facilityId: "0xb1530a86a4ab63fe19f2777fb5f979ec7aaf0a3bd9ac108507783714fc50d136",
+} as const;
+
+export const VERIFIED_DEPLOYMENT = {
+  verdAddress: import.meta.env.VITE_VERD_ADDRESS || PUBLISHED_COMPLETED_REFERENCE.verdAddress,
+  facilityId: import.meta.env.VITE_VERD_REFERENCE_FACILITY_ID || PUBLISHED_COMPLETED_REFERENCE.facilityId,
   workerUrl: "https://verd-phase5-worker.onrender.com",
 } as const;
 
@@ -68,6 +73,8 @@ const SEPOLIA_FACTORY_ABI = [
 const SEPOLIA_ERC20_ABI = [
   "function approve(address spender,uint256 amount) returns (bool)",
   "function allowance(address owner,address spender) view returns (uint256)",
+  "function balanceOf(address owner) view returns (uint256)",
+  "function deposit() payable",
 ];
 const SEPOLIA_AAVE_ABI = ["function supply(address asset,uint256 amount,address onBehalfOf,uint16 referralCode)"];
 const SEPOLIA_LOCKER_ABI = ["function release() returns (uint256)"];
@@ -156,8 +163,71 @@ export function formatDate(timestamp: number) { return new Intl.DateTimeFormat("
 export function short(value: string) { return `${value.slice(0, 6)}...${value.slice(-4)}`; }
 export function explorerAddress(address: string) { return `${CC3.explorerUrl}address/${address}`; }
 export function explorerTx(hash: string) { return `${CC3.explorerUrl}tx/${hash}`; }
+export function sepoliaExplorerTx(hash: string) { return `${SEPOLIA.explorerUrl}tx/${hash}`; }
 export function hasProof(value: string) { return Boolean(value && !/^0x0+$/.test(value)); }
 export function hasAddress(value: string) { return Boolean(value && !/^0x0{40}$/i.test(value)); }
+
+export type BrowserFacilityProgress = {
+  lockerTransactionHash?: string;
+  reserveSupplyHash?: string;
+  releaseTransactionHash?: string;
+  sourceTxHash?: string;
+  sourceBlock?: string;
+  jobId?: string;
+  jobOperation?: "binding" | "qualification" | "release";
+  updatedAt: string;
+};
+
+const FACILITY_PROGRESS_KEY = "verd.facility-progress.v1";
+const RECENT_FACILITIES_KEY = "verd.recent-facilities.v1";
+
+function readBrowserJson<T>(key: string, fallback: T): T {
+  try {
+    if (typeof window === "undefined") return fallback;
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch { return fallback; }
+}
+
+function writeBrowserJson(key: string, value: unknown) {
+  try { if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify(value)); }
+  catch { /* Browser recovery is optional. Chain and worker state remain authoritative. */ }
+}
+
+export function readFacilityProgress(facilityId: string): BrowserFacilityProgress | undefined {
+  return readBrowserJson<Record<string, BrowserFacilityProgress>>(FACILITY_PROGRESS_KEY, {})[facilityId.toLowerCase()];
+}
+
+export function saveFacilityProgress(facilityId: string, patch: Partial<BrowserFacilityProgress>) {
+  const all = readBrowserJson<Record<string, BrowserFacilityProgress>>(FACILITY_PROGRESS_KEY, {});
+  const key = facilityId.toLowerCase();
+  const current = all[key] ?? { updatedAt: new Date(0).toISOString() };
+  const next = Object.fromEntries(Object.entries({ ...current, ...patch, updatedAt: new Date().toISOString() }).filter(([, value]) => value !== undefined)) as BrowserFacilityProgress;
+  all[key] = next;
+  writeBrowserJson(FACILITY_PROGRESS_KEY, all);
+  rememberFacility(facilityId);
+  return next;
+}
+
+export function rememberFacility(facilityId: string) {
+  if (!/^0x[a-fA-F0-9]{64}$/.test(facilityId)) return;
+  const ids = readBrowserJson<string[]>(RECENT_FACILITIES_KEY, []).filter(id => id.toLowerCase() !== facilityId.toLowerCase());
+  writeBrowserJson(RECENT_FACILITIES_KEY, [facilityId, ...ids].slice(0, 12));
+}
+
+export function readRecentFacilities() {
+  return readBrowserJson<string[]>(RECENT_FACILITIES_KEY, []).filter(id => /^0x[a-fA-F0-9]{64}$/.test(id));
+}
+
+export type TestnetBalances = { cc3: bigint; sepoliaEth: bigint; weth: bigint };
+
+export async function readTestnetBalances(account: string): Promise<TestnetBalances> {
+  const sepolia = new JsonRpcProvider(SEPOLIA.rpcUrl, SEPOLIA.chainId, { staticNetwork: true });
+  const cc3 = new JsonRpcProvider(CC3.rpcUrl, CC3.chainId, { staticNetwork: true });
+  const weth = new Contract(SEPOLIA.weth, SEPOLIA_ERC20_ABI, sepolia);
+  const [cc3Balance, sepoliaEth, wethBalance] = await Promise.all([cc3.getBalance(account), sepolia.getBalance(account), weth.balanceOf(account) as Promise<bigint>]);
+  return { cc3: cc3Balance, sepoliaEth, weth: wethBalance };
+}
 
 declare global { interface Window { ethereum?: Eip1193Provider; } }
 
@@ -222,6 +292,15 @@ export async function supplyReserve(locker: string, amount: bigint) {
   return transaction.hash as string;
 }
 
+export async function wrapSepoliaEth(amount: bigint) {
+  if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
+  const provider = new BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const weth = new Contract(SEPOLIA.weth, SEPOLIA_ERC20_ABI, signer);
+  const transaction = await weth.deposit({ value: amount });
+  return transaction.hash as string;
+}
+
 export async function drawFacility(id: string) {
   if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
   const provider = new BrowserProvider(window.ethereum);
@@ -244,6 +323,12 @@ export function estimateRepayment(facility: FacilityRecord, nowSeconds = Math.fl
   const elapsed = BigInt(Math.max(0, nowSeconds - facility.lastAccrualTimestamp));
   const interestSinceRead = facility.outstandingPrincipal * facility.currentAprBps * elapsed / 10_000n / 31_536_000n;
   return facility.outstandingPrincipal + facility.accruedInterest + interestSinceRead;
+}
+
+export function repaymentSubmissionAmount(facility: FacilityRecord) {
+  const estimate = estimateRepayment(facility);
+  const fifteenMinuteInterest = facility.outstandingPrincipal * facility.currentAprBps * 900n / 10_000n / 31_536_000n;
+  return estimate + (fifteenMinuteInterest > 0n ? fifteenMinuteInterest : 1n);
 }
 
 export async function repayFacility(id: string, amount: bigint) {
