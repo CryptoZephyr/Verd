@@ -26,9 +26,9 @@ Verd runs facility and APR state on Creditcoin CC3. The borrower creates a Reser
 
 ## Scope and limitations
 
-The current implementation is testnet-only. It does not claim Mainnet readiness or independent security audit coverage. The reference facility proves creation, funding, locker binding, reserve supply, and preferred-rate activation. It does not represent a completed draw, repayment, reserve release, or full lifecycle record.
+The current implementation is testnet-only. It does not claim Mainnet readiness or independent security audit coverage. The fresh recorded facility proves creation, funding, locker binding, reserve supply, preferred-rate activation, draw, post-maturity repayment, reserve release, and the final Complete state.
 
-The public worker deployment must be checked for its current route set before browser job registration is assumed. The Render Free database has a recorded provider expiry of 2026-09-27. The Ethereum lock remains time-based and does not receive an automatic repayment signal from Creditcoin.
+The public worker deployment must be checked for its current route set before browser job registration is assumed. The Render Free database has a recorded provider expiry of 2026-09-27. The Ethereum lock remains time-based and does not receive an automatic repayment signal from Creditcoin. Verd records the release proof on CC3 after the borrower-authorized source release.
 
 ## Repository map
 

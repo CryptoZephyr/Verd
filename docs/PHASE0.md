@@ -90,5 +90,5 @@ Gate 1, immutable locker binding and future maturity guard, PASS
 Gate 3, source success and exact Aave field authentication, PASS
 Gate 5, negative proof, replay protection, interrupted/resumed worker, PASS
 Render deployment, intentionally deferred
-Phase 4 is complete. Phase 5 proof worker and Render Free backend verification is complete. Phase 6 frontend work has not started.
+Phase 4 is complete. The current proof worker, public frontend, and fresh complete lifecycle are recorded in [PHASE5.md](PHASE5.md), [VERIFIED_EVIDENCE.md](VERIFIED_EVIDENCE.md), and the public documentation map.
 ```

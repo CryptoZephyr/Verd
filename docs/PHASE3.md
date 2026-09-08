@@ -1,6 +1,6 @@
 # Phase 3, factory-bound locker and preferred-rate proof
 
-Status: verified end to end on Sepolia and CC3. Phase 4 adversarial and recovery verification is complete. Phase 5 proof worker and Render Free backend are verified. Phase 6 frontend work has not started.
+Status: historical proof-path record retained for implementation detail. The current public deployment and fresh complete lifecycle are recorded in [VERIFIED_EVIDENCE.md](VERIFIED_EVIDENCE.md).
 
 ## Corrected cross-chain architecture
 

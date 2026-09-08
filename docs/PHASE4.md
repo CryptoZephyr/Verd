@@ -1,6 +1,6 @@
 # Phase 4, adversarial and recovery verification
 
-Status: complete locally after corrected Phase 3 passed. Phase 5 proof worker and Render Free backend verification is complete. Phase 6 frontend work has not started.
+Status: complete locally after the corrected proof path passed. Current worker deployment and fresh lifecycle evidence are recorded in [PHASE5.md](PHASE5.md) and [VERIFIED_EVIDENCE.md](VERIFIED_EVIDENCE.md).
 
 ## Adversarial coverage
 
@@ -50,4 +50,4 @@ forge build
 passed with existing block-timestamp and checked-cast lint warnings
 ```
 
-Phase 4 itself did not perform Render or frontend work. Phase 4 is complete. Phase 5 is verified, and Phase 6 frontend work has not started.
+Phase 4 itself covers adversarial and recovery behavior. The current Render worker and public frontend are documented separately. The fresh testnet lifecycle is verified in the current evidence record.

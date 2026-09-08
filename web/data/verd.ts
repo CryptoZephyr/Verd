@@ -23,16 +23,25 @@ export const SEPOLIA = {
 
 export const VERIFIED_DEPLOYMENT = {
   verdAddress: "0x37b858D0ADfDcBF851F17d87d69E02F7F9fA8328",
-  facilityId: "0xfbef1da27e678746f384e2bd29d94b2063b2aac78a23e4983e88709a4d038de1",
+  facilityId: "0xb1530a86a4ab63fe19f2777fb5f979ec7aaf0a3bd9ac108507783714fc50d136",
   workerUrl: "https://verd-phase5-worker.onrender.com",
 } as const;
 
 export const WORKER_URL = import.meta.env.VITE_VERD_WORKER_URL || VERIFIED_DEPLOYMENT.workerUrl;
 
 export const VERIFIED_EVIDENCE = {
-  reserveSupplyTx: "0x47c44c7acd76c34e9b9d2e45f7601690eaa754dae6aff41778c347dad8120346",
-  lockerBindingTx: "0xcb29abc0f8374614e35abb4cee118d79741f617859813e8fdbda102b1ac09b98",
-  qualificationTx: "0x1a60bd280b0d18ee41e356cfe5d9aa1f5fded93b8c8b12561fbcbe0ed4ef9fef",
+  createFacilityTx: "0x4de1bed1aacc73cbdb3d54abd47ef7d8497076446957e33473759559a2d90f40",
+  lockerCreationTx: "0x8d459e60f51824e4cb2254fbcb48dc21fefe188e8848365e7c5617625fa6c6e9",
+  lockerBindingTx: "0xf975e011ac9d8a0d68b1f1515b4c27b33e1bd26172713a8f1e4ea81b02b2bab3",
+  fundFacilityTx: "0x3dadcf71ff53c1c16682c94f648628fe90a72ac745d371131c1fd54ce2658886",
+  reserveSupplyTx: "0xaeccbb4051fba1ec451e383694c1ed555ad53b81abbd2fa0181b005a14822d0b",
+  qualificationTx: "0xb3217820882bfaa525a408ab33d56e906748174ea9472575dccafb0ea94451a2",
+  drawTx: "0xce99f59b11d1b362305adb69e9aa5eb373226ed1a3651159fba22113a144460b",
+  repaymentTx: "0x1307c19d6b48ec550a06905f8c3d5f518ed15d4dc8275a815af2997293b84dec",
+  reserveReleaseTx: "0xb1567d3b3505be0bdcfb92f23751bda06a64ead73bd3c81506c4d4424f526bd4",
+  qualificationProofId: "0xc9d9d5d00ab970a542d5fd1b92abc31f48cd4484f38f943421035ee6ec18e587",
+  bindingProofId: "0xab452bb86b52de3409a886d958d5c57620cbe6d3f9cdc0e28163f64119fcda3d",
+  releaseProofId: "0x98c198283a5201c70be777a89f849ab9fa2ef1c2a33ef658d1e004915c394408",
   sepoliaExplorerUrl: "https://sepolia.etherscan.io/tx/",
 } as const;
 

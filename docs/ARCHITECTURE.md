@@ -63,7 +63,7 @@ Retryable infrastructure failures preserve evidence. Terminal validation failure
 
 ## Maturity and release
 
-The facility becomes due at maturity. Repayment is a CC3 action. The ReserveLocker unlocks at its immutable time and can then be released by the borrower. The current contracts do not enforce a cross-chain repayment signal at the Ethereum lock, so product copy must not describe release as repayment-gated by the protocol.
+The facility becomes due at maturity. Repayment is a CC3 action. The ReserveLocker unlocks at its immutable time and can then be released by the borrower. The worker verifies the release receipt and submits `recordReserveRelease` so CC3 can expose an authenticated completion record. The current contracts do not enforce a cross-chain repayment signal at the Ethereum lock, so product copy must describe this as sequencing and proof-backed recording rather than protocol-enforced repayment gating.
 
 ## Deployment topology
 

@@ -14,11 +14,11 @@ Returns service and database readiness. This response does not prove a facility 
 
 ### `POST /public/qualification-jobs`
 
-Registers a borrower-authenticated `qualification` or `binding` job.
+Registers a borrower-authenticated `qualification`, `binding`, or `release` job.
 
 ```json
 {
-  "operation": "qualification",
+  "operation": "qualification | binding | release",
   "facilityId": "0x...",
   "sourceTxHash": "0x...",
   "sourceBlock": 11622931,

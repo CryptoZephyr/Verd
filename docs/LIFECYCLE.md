@@ -14,7 +14,8 @@ Verd presents one facility journey from terms to repayment and reserve release.
 8. Draw before maturity.
 9. Accrue and repay at or after maturity.
 10. Release the time-unlocked reserve.
-11. Confirm completion from external records.
+11. Register the authenticated release proof on CC3.
+12. Confirm Complete from CC3 state and external records.
 
 ## State vocabulary
 
@@ -37,4 +38,4 @@ Draw is unavailable at or after maturity. Repayment is due at or after maturity 
 
 ## Reserve release boundary
 
-ReserveLocker release is borrower-authorized and time-based. The current contract does not receive a repayment message from Creditcoin. The product may sequence repayment before release, but it must not claim that the locker enforces repayment gating.
+ReserveLocker release is borrower-authorized and time-based. The locker does not receive a repayment message from Creditcoin. Verd sequences repayment before release, verifies the Sepolia `ReserveReleased` receipt, and records an authenticated release proof on CC3. The resulting `Complete` state requires both the repayment flag and the recorded release evidence. This is product sequencing and proof-backed recording, not protocol-enforced repayment gating inside the locker.

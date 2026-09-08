@@ -56,6 +56,7 @@ Trust boundaries, secrets, proof validation, failure and replay behavior, troubl
 - The first reader question is answered directly: a lender sets a fixed-term facility, and a borrower can qualify for the preferred rate by locking the agreed WETH reserve until maturity.
 - The preferred rate affects future interest only after Verd accepts the facility-specific reserve condition.
 - The current reserve release is time-based and borrower-authorized. It does not receive an automatic Creditcoin repayment signal.
+- Verd can record an authenticated release proof after repayment and release, and the public evidence page records the fresh testnet facility's Complete state.
 - Contract reads and external receipts are authoritative for current state.
 - Worker metadata explains operations and recovery. It does not prove financial state.
 - Tutorials explain sequence. Reference pages support lookup.

@@ -33,7 +33,7 @@ The constructor fixes the USC proof verifier, the approved Sepolia `ReserveLocke
 
 ## Event coverage
 
-Contract event coverage is complete. `Verd` emits `FacilityCreated`, `ReserveLockerBound`, `FacilityFunded`, `FacilityDrawn`, `InterestAccrued`, `PreferredRateConditionActivated`, and `FacilityRepaid`. `ReserveLocker` emits `ReserveReleased`, and `ReserveLockerFactory` emits `ReserveLockerCreated`. Release truth belongs to `ReserveLocker`, so `Verd` does not duplicate that event.
+Contract event coverage is complete. `Verd` emits `FacilityCreated`, `ReserveLockerBound`, `FacilityFunded`, `FacilityDrawn`, `InterestAccrued`, `PreferredRateConditionActivated`, `FacilityRepaid`, and `ReserveReleaseRecorded`. `ReserveLocker` emits `ReserveReleased`, and `ReserveLockerFactory` emits `ReserveLockerCreated`. The CC3 event records the authenticated source release proof and amount after the Ethereum event has been verified.
 
 ## Validation evidence
 
