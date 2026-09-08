@@ -239,26 +239,35 @@ export async function connectWallet() {
   return { provider, account: await (await provider.getSigner()).getAddress(), chainId: Number(network.chainId) };
 }
 
-export async function switchToCc3() {
+type WalletChain = typeof CC3 | typeof SEPOLIA;
+
+function walletErrorCode(error: unknown) {
+  return typeof error === "object" && error && "code" in error ? Number(error.code) : undefined;
+}
+
+async function switchOrAddChain(chain: WalletChain) {
   if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
   try {
-    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CC3.chainIdHex }] });
-  } catch (error) {
-    const code = typeof error === "object" && error && "code" in error ? Number(error.code) : 0;
-    if (code !== 4902) throw error;
-    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: CC3.chainIdHex, chainName: CC3.name, nativeCurrency: CC3.currency, rpcUrls: [CC3.rpcUrl], blockExplorerUrls: [CC3.explorerUrl] }] });
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chain.chainIdHex }] });
+    return;
+  } catch (switchError) {
+    if (walletErrorCode(switchError) === 4001) throw new Error("Network switch was declined in your wallet.");
+  }
+  try {
+    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: chain.chainIdHex, chainName: chain.name, nativeCurrency: chain.currency, rpcUrls: [chain.rpcUrl], blockExplorerUrls: [chain.explorerUrl] }] });
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chain.chainIdHex }] });
+  } catch (addError) {
+    if (walletErrorCode(addError) === 4001) throw new Error("Adding or switching the network was declined in your wallet.");
+    throw addError;
   }
 }
 
+export async function switchToCc3() {
+  await switchOrAddChain(CC3);
+}
+
 export async function switchToSepolia() {
-  if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
-  try {
-    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA.chainIdHex }] });
-  } catch (error) {
-    const code = typeof error === "object" && error && "code" in error ? Number(error.code) : 0;
-    if (code !== 4902) throw error;
-    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: SEPOLIA.chainIdHex, chainName: SEPOLIA.name, nativeCurrency: SEPOLIA.currency, rpcUrls: [SEPOLIA.rpcUrl], blockExplorerUrls: [SEPOLIA.explorerUrl] }] });
-  }
+  await switchOrAddChain(SEPOLIA);
 }
 
 export async function createReserveLocker(id: string, borrower: string, unlockTime: number) {
