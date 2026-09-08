@@ -99,7 +99,7 @@ export class LiveChainGateway implements ChainGateway {
         this.sepolia = new ethers.JsonRpcProvider(config.sepoliaRpcUrl);
         this.cc3 = new ethers.JsonRpcProvider(config.cc3RpcUrl);
         this.signer = new ethers.Wallet(config.privateKey, this.cc3);
-        this.verd = new ethers.Contract(config.verdAddress, VERD_ABI, this.cc3);
+        this.verd = new ethers.Contract(config.verdAddress, VERD_ABI, this.signer);
     }
 
     async assertNetworks(): Promise<void> {
