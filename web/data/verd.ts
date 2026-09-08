@@ -402,10 +402,16 @@ export type CreateFacilityTerms = {
   requiredReserve: string;
 };
 
+function parseFacilityDate(value: string) {
+  const normalized = value.includes("T") ? value : `${value}T23:59:59Z`;
+  const timestamp = new Date(normalized).getTime();
+  return Math.floor(timestamp / 1000);
+}
+
 export async function createFacility(terms: CreateFacilityTerms) {
   if (!window.ethereum) throw new Error("No compatible browser wallet was found.");
-  const maturity = Math.floor(new Date(`${terms.maturity}T23:59:59Z`).getTime() / 1000);
-  const qualificationDeadline = Math.floor(new Date(`${terms.qualificationDeadline}T23:59:59Z`).getTime() / 1000);
+  const maturity = parseFacilityDate(terms.maturity);
+  const qualificationDeadline = parseFacilityDate(terms.qualificationDeadline);
   if (!Number.isFinite(maturity) || !Number.isFinite(qualificationDeadline)) throw new Error("Choose valid facility dates.");
   if (qualificationDeadline > maturity) throw new Error("The qualification deadline must be on or before maturity.");
   const facilityId = id(`${terms.borrower.toLowerCase()}:${Date.now()}:${crypto.randomUUID()}`);
